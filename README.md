@@ -12,7 +12,7 @@ Este repositorio contem a primeira casca visual do ARGOS, criada com Vite, React
 
 GitHub owner: vampcodando
 Email dos commits: vampnovoagain@gmail.com
-Repositorio remoto: https://github.com/vampcodando/argos-mvp.git
+Repositorio remoto: git@github.com:vampcodando/argos-mvp.git
 
 ## Regra principal
 
@@ -36,6 +36,7 @@ Nenhum agente pode alterar arquivos, executar comandos destrutivos, fazer commit
 - Abas navegaveis
 - Build validado
 - GitHub sincronizado
+- SSH configurado para vampcodando
 - Sem backend
 - Sem API paga
 - Sem execucao real de agentes

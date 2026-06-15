@@ -8,7 +8,7 @@ F:\PDEV\ARGOS-LAB\argos-mvp
 
 ## Repositorio
 
-https://github.com/vampcodando/argos-mvp.git
+git@github.com:vampcodando/argos-mvp.git
 
 ## Branch
 
@@ -36,6 +36,23 @@ Validada visualmente no navegador em http://localhost:5173/.
 - Aba Auditoria carregada
 - Tema Odysseus Dark aplicado
 - Sem tela padrao do Vite
+
+## Git e autenticacao
+
+Git local:
+
+- user.name: vampcodando
+- user.email: vampnovoagain@gmail.com
+
+Remote atual:
+
+- origin: git@github.com:vampcodando/argos-mvp.git
+
+SSH:
+
+- chave local: ~/.ssh/id_ed25519_github_vampcodando_argos
+- teste SSH aprovado com a conta vampcodando
+- push sem navegador
 
 ## Decisao de identidade
 
