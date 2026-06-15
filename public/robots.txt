@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /
+
+# ARGOS is a private operational lab.
+# This robots.txt reduces accidental indexing but does not replace authentication.
