@@ -2,17 +2,13 @@
 
 Data: 2026-06-15
 
-## Objetivo
-
-Registrar a configuracao inicial de IA local do ARGOS usando Ollama no Windows, com modelos armazenados no drive F:.
-
 ## Estado validado
 
-Ollama instalado:
+Ollama instalado em:
 
 C:\Users\lucia\AppData\Local\Programs\Ollama\ollama.exe
 
-Versao:
+Versao validada:
 
 0.30.8
 
@@ -20,7 +16,7 @@ Servidor local:
 
 http://127.0.0.1:11434
 
-Variaveis de usuario configuradas:
+Variaveis de usuario:
 
 OLLAMA_MODELS=F:\IA_LOCAL\ollama\models
 OLLAMA_HOST=127.0.0.1:11434
@@ -29,119 +25,35 @@ Pasta oficial dos modelos:
 
 F:\IA_LOCAL\ollama\models
 
-Estrutura validada:
+## Modelos locais detectados
 
-- blobs
-- manifests
+- qwen2.5:3b
+- qwen2.5-coder:7b
 
-## Hardware local
+## Hardware validado
 
-Sistema:
+- Windows 11 Pro for Workstations 64 bits
+- RAM aproximada: 16 GB
+- GPU: NVIDIA GeForce GTX 1070 Ti
+- VRAM: 8 GB
+- Driver NVIDIA: 582.28
+- CUDA reportado: 13.0
 
-Windows 11 Pro for Workstations 64 bits
+## Observacao
 
-RAM:
+O Ollama estava ativo na bandeja do Windows e mantinha a porta 11434 ocupada.
 
-aproximadamente 16 GB
+Ajuste realizado:
 
-GPU:
-
-NVIDIA GeForce GTX 1070 Ti
-
-VRAM:
-
-8 GB
-
-Driver NVIDIA:
-
-582.28
-
-CUDA reportado pelo nvidia-smi:
-
-13.0
-
-## Modelos encontrados
-
-qwen2.5-coder:7b
-
-- tamanho: 4.7 GB
-- uso recomendado: codigo, analise tecnica, patches e scripts
-- usar com cuidado para nao saturar VRAM/RAM
-
-qwen2.5:3b
-
-- tamanho: 1.9 GB
-- uso recomendado: teste geral leve, respostas curtas, validacao inicial da ponte local
-- modelo preferido para primeira integracao do ARGOS
-
-## Problema encontrado
-
-O Ollama estava rodando em segundo plano pela bandeja do Windows e mantinha a porta 127.0.0.1:11434 ocupada.
-
-Sintoma:
-
-listen tcp 127.0.0.1:11434: bind: Only one usage of each socket address is normally permitted.
-
-Causa:
-
-processo ollama.exe ativo em segundo plano.
-
-Correcao:
-
-- sair do Ollama pela bandeja do Windows
-- matar processos restantes no Gerenciador de Tarefas quando necessario
-- confirmar que a porta 11434 ficou livre
-- configurar OLLAMA_MODELS para F:\IA_LOCAL\ollama\models
-- reiniciar o Ollama com a configuracao correta
-
-## Testes realizados
-
-Teste CLI:
-
-ollama run qwen2.5:3b "Responda em portugues do Brasil, em uma frase curta: ARGOS local esta operacional?"
-
-Resultado:
-
-ARGOS esta operacional.
-
-Teste API:
-
-POST http://127.0.0.1:11434/api/generate
-
-Modelo:
-
-qwen2.5:3b
-
-Resultado tecnico:
-
-API respondeu JSON corretamente.
-
-Observacao:
-
-Sem contexto oficial, o modelo respondeu conteudo incorreto sobre "ARGIS". Isso validou que o ARGOS precisa usar system prompt/contexto fixo antes de confiar em respostas locais.
+- sair do Ollama pela bandeja
+- encerrar processos restantes
+- liberar porta 11434
+- configurar OLLAMA_MODELS para o drive F:
+- validar API local em /api/tags
+- validar inferencia local com qwen2.5:3b
 
 ## Regra operacional
 
-Ollama local pode ser usado como laboratorio.
+Modelos locais ficam no drive F:.
 
-Na fase atual:
-
-- nao executa comandos
-- nao altera arquivos
-- nao faz deploy
-- nao substitui validacao tecnica
-- nao usa OpenAI API paga
-- nao recebe segredos
-- nao recebe payload ilimitado
-
-## Proxima fase
-
-ARGOS v0.4.1 - Chat visual na pagina Mestre.
-
-Depois:
-
-ARGOS v0.4.2 - Ponte local segura para Ollama.
-
-Depois:
-
-ARGOS v0.4.3 - Chat conectado ao qwen2.5:3b com contexto oficial e limites.
+Ollama local e laboratorio controlado. Ele ainda nao executa comandos, nao escreve arquivos, nao faz deploy e nao substitui validacao tecnica.
