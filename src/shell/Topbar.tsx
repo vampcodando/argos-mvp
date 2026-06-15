@@ -1,6 +1,7 @@
 import { ARGOS_THEMES, type ArgosThemeName } from "../theme/themes";
 import { useArgosTheme } from "../theme/ThemeProvider";
 import type { NavItem } from "../app/navigation";
+import { BackendHealthBadge } from "../components/BackendHealthBadge";
 
 export function Topbar({ activeItem }: { activeItem: NavItem }) {
   const { themeName, setThemeName } = useArgosTheme();
@@ -16,6 +17,7 @@ export function Topbar({ activeItem }: { activeItem: NavItem }) {
       <div className="topbar-actions">
         <span className="pill">local</span>
         <span className="pill muted">API paga bloqueada</span>
+        <BackendHealthBadge />
         <a className="logout-link" href="/cdn-cgi/access/logout">Sair</a>
 
         <label className="theme-select-label">
