@@ -1,0 +1,57 @@
+:root {
+  --bg: #282c34;
+  --fg: #9cdef2;
+  --panel: #111111;
+  --border: #355a66;
+  --red: #e06c75;
+  --accent: #00aaff;
+  --muted: #6b8a94;
+  --sidebar-bg: var(--panel);
+  --input-bg: var(--bg);
+  --input-border: var(--border);
+  --color-agent-active: #00ff00;
+
+  color: var(--fg);
+  background: var(--bg);
+  font-family:
+    "Fira Code",
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 10% 12%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 28%),
+    radial-gradient(circle at 88% 18%, color-mix(in srgb, var(--red) 12%, transparent), transparent 30%),
+    var(--bg);
+  color: var(--fg);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 0;
+}
+
