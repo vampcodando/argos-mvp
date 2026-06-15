@@ -16,6 +16,7 @@ export function Topbar({ activeItem }: { activeItem: NavItem }) {
       <div className="topbar-actions">
         <span className="pill">local</span>
         <span className="pill muted">API paga bloqueada</span>
+        <a className="logout-link" href="/cdn-cgi/access/logout">Sair</a>
 
         <label className="theme-select-label">
           Tema

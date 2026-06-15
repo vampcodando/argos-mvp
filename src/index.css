@@ -591,3 +591,21 @@
   }
 }
 
+
+
+.logout-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--red);
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--red) 42%, var(--border));
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--red) 8%, transparent);
+}
+
+.logout-link:hover {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+}
