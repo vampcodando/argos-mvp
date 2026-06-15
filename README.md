@@ -1,73 +1,71 @@
-# React + TypeScript + Vite
+# ARGOS MVP
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+ARGOS e uma plataforma privada de orquestracao multiagente para criar, reconstruir, manter, auditar e evoluir sistemas.
 
-Currently, two official plugins are available:
+## Estado atual
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Versao atual: MVP v0.1
 
-## React Compiler
+Este repositorio contem a primeira casca visual do ARGOS, criada com Vite, React, TypeScript e npm.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Identidade oficial
 
-## Expanding the ESLint configuration
+GitHub owner: vampcodando
+Email dos commits: vampnovoagain@gmail.com
+Repositorio remoto: https://github.com/vampcodando/argos-mvp.git
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Regra principal
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Nenhum agente pode alterar arquivos, executar comandos destrutivos, fazer commit, push, deploy ou acionar API paga sem aprovacao explicita do usuario.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Modulos iniciais
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+- Mestre
+- Agentes
+- Missoes
+- Canvas
+- Console
+- Modelos
+- Auditoria
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Status do MVP v0.1
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- Shell visual inicial criado
+- Tema inspirado no Odysseus
+- Sidebar e icon rail ativos
+- Abas navegaveis
+- Build validado
+- GitHub sincronizado
+- Sem backend
+- Sem API paga
+- Sem execucao real de agentes
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Comandos principais
+
+Instalar dependencias:
+
+npm install
+
+Rodar localmente:
+
+npm run dev
+
+Validar build:
+
+npm run build
+
+## Estrategia tecnica
+
+ARGOS nao copia integralmente nenhum projeto externo.
+
+Referencias iniciais:
+
+- Odysseus: shell visual, temas, paineis e experiencia de uso
+- Sim Studio: canvas e workflows visuais
+- Mission Control: missoes, qualidade, logs e custo
+- Magentic-UI: aprovacao humana, seguranca e sandbox
+- OpenAI Agents SDK JS/TS: candidato principal para motor futuro
+
+## Proxima fase
+
+A proxima fase sera transformar o shell visual em painel operacional com estado local de missoes, agentes e aprovacoes, ainda sem chamadas pagas.
