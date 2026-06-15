@@ -12,7 +12,8 @@
     "cf:project:create": "wrangler pages project create argos-mvp --production-branch=main",
     "deploy": "npm run build && wrangler pages deploy dist --project-name=argos-mvp --branch=main",
     "deploy:preview": "npm run build && wrangler pages deploy dist --project-name=argos-mvp --branch=preview",
-    "delploy": "npm run deploy"
+    "delploy": "npm run deploy",
+    "local:ollama-bridge": "node tools/argos-local-ollama-bridge.mjs"
   },
   "dependencies": {
     "react": "^19.2.6",
