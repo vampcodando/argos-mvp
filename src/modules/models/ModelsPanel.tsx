@@ -1,18 +1,21 @@
-const models = [
-  ["OpenAI API", "Mestre principal futuro", "bloqueado"],
-  ["Ollama", "Especialistas locais apos sabatina", "sabatina"],
-  ["OpenAI-compatible", "Endpoints externos compativeis", "pendente"],
-];
+import { StatusBadge } from "../../components/StatusBadge";
+import { models } from "../../state/argosOperationalState";
 
 export function ModelsPanel() {
   return (
     <div className="panel-grid">
-      {models.map(([name, description, status]) => (
-        <article className="panel-card" key={name}>
-          <span className="card-kicker">Modelo</span>
-          <h3>{name}</h3>
-          <p>{description}</p>
-          <span className="badge">{status}</span>
+      {models.map((model) => (
+        <article className="panel-card" key={model.id}>
+          <span className="card-kicker">{model.provider}</span>
+          <h3>{model.name}</h3>
+          <p>{model.purpose}</p>
+
+          <div className="mission-meta">
+            <span>Pago: {model.paid ? "sim" : "nao"}</span>
+            <span>Aprovacao: {model.approvalRequired ? "obrigatoria" : "nao"}</span>
+          </div>
+
+          <StatusBadge status={model.status} />
         </article>
       ))}
     </div>

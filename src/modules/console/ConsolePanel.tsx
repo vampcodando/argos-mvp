@@ -1,9 +1,5 @@
-const rows = [
-  ["comando", "Aguardando proposta tecnica."],
-  ["log", "Nenhum comando executado pelo ARGOS ainda."],
-  ["interpretacao", "Sem diagnostico pendente."],
-  ["validacao", "Aprovacao humana obrigatoria antes de qualquer acao perigosa."],
-];
+import { StatusBadge } from "../../components/StatusBadge";
+import { consoleEvents } from "../../state/argosOperationalState";
 
 export function ConsolePanel() {
   return (
@@ -14,10 +10,14 @@ export function ConsolePanel() {
       </header>
 
       <div className="console-window">
-        {rows.map(([label, value]) => (
-          <div className="console-row" key={label}>
-            <span>{label}</span>
-            <code>{value}</code>
+        {consoleEvents.map((event) => (
+          <div className="console-row rich" key={event.id}>
+            <span>{event.kind}</span>
+            <div>
+              <strong>{event.title}</strong>
+              <code>{event.detail}</code>
+              <StatusBadge status={event.status} />
+            </div>
           </div>
         ))}
       </div>

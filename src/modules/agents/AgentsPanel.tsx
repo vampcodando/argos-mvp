@@ -1,19 +1,34 @@
-const agents = [
-  ["Mestre", "Coordena missao, cobra evidencia e decide proximos passos."],
-  ["Planejador", "Divide missoes grandes em etapas pequenas."],
-  ["Revisor Critico", "Tenta reprovar solucao antes de aplicar."],
-  ["Executor Controlado", "Executa somente comandos aprovados pelo usuario."],
-];
+import { StatusBadge } from "../../components/StatusBadge";
+import { agents } from "../../state/argosOperationalState";
 
 export function AgentsPanel() {
   return (
     <div className="panel-grid">
-      {agents.map(([name, description]) => (
-        <article className="panel-card" key={name}>
-          <span className="card-kicker">Cargo inicial</span>
-          <h3>{name}</h3>
-          <p>{description}</p>
-          <span className="badge pending">mockado</span>
+      {agents.map((agent) => (
+        <article className="panel-card" key={agent.id}>
+          <span className="card-kicker">{agent.role}</span>
+          <h3>{agent.name}</h3>
+          <p>Modelo: {agent.model}</p>
+
+          <StatusBadge status={agent.status} />
+
+          <div className="mini-section">
+            <strong>Permissoes</strong>
+            <ul>
+              {agent.permissions.map((permission) => (
+                <li key={permission}>{permission}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="mini-section danger">
+            <strong>Bloqueios</strong>
+            <ul>
+              {agent.blockedActions.map((action) => (
+                <li key={action}>{action}</li>
+              ))}
+            </ul>
+          </div>
         </article>
       ))}
     </div>

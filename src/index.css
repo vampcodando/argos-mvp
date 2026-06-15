@@ -170,7 +170,9 @@
 .list-copy small,
 .status-card small,
 .panel-card p,
-.canvas-note {
+.canvas-note,
+.compact-item span,
+.timeline-item span {
   color: var(--muted);
   line-height: 1.5;
 }
@@ -242,7 +244,10 @@
 }
 
 .pill,
-.badge {
+.badge,
+.status-badge {
+  display: inline-flex;
+  width: fit-content;
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
   color: var(--accent);
   border-radius: 999px;
@@ -251,15 +256,31 @@
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+.status-blocked,
+.status-error {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+
+.status-executed,
+.status-approved,
+.status-reviewed {
+  color: #50fa7b;
+  border-color: color-mix(in srgb, #50fa7b 45%, var(--border));
+  background: color-mix(in srgb, #50fa7b 10%, transparent);
+}
+
+.status-waiting_approval {
+  color: #f0ad4e;
+  border-color: color-mix(in srgb, #f0ad4e 45%, var(--border));
+  background: color-mix(in srgb, #f0ad4e 10%, transparent);
+}
+
 .pill.muted {
   color: var(--muted);
   border-color: var(--border);
   background: color-mix(in srgb, var(--panel) 65%, transparent);
-}
-
-.badge.pending {
-  color: var(--red);
-  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
 }
 
 .theme-select-label {
@@ -311,7 +332,7 @@
 
 .panel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
   gap: 14px;
 }
 
@@ -340,44 +361,107 @@
   min-height: 300px;
 }
 
-.mission-rule {
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(80px, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.metric-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+}
+
+.metric-card strong {
+  display: block;
+  font-size: 25px;
+  color: var(--accent);
+}
+
+.metric-card span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mission-rule,
+.next-step-box {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  margin-top: 22px;
+  margin-top: 14px;
   padding: 13px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--red) 42%, var(--border));
   background: color-mix(in srgb, var(--red) 9%, transparent);
 }
 
-.step-list {
+.next-step-box {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.next-step-box span {
+  color: var(--muted);
+}
+
+.compact-list,
+.timeline {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.compact-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 35%, transparent);
+}
+
+.compact-item div {
+  display: grid;
+  gap: 4px;
+}
+
+.mini-section {
+  margin-top: 14px;
+}
+
+.mini-section ul {
+  margin: 8px 0 0;
   padding-left: 18px;
-  margin: 12px 0 0;
-}
-
-.step-list li {
-  margin-bottom: 14px;
-}
-
-.step-list span {
-  display: block;
   color: var(--muted);
-  margin-top: 3px;
 }
 
-.mission-tile button {
-  margin-top: 12px;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--panel) 50%, var(--bg));
+.mini-section.danger strong {
+  color: var(--red);
+}
+
+.mission-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mission-meta span {
   border: 1px solid var(--border);
-  padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: 11px;
 }
 
 .canvas-stage {
   position: relative;
-  min-height: 440px;
+  min-height: 500px;
   overflow: hidden;
 }
 
@@ -386,7 +470,7 @@
   z-index: 2;
   display: grid;
   gap: 16px;
-  max-width: 260px;
+  max-width: 280px;
   margin: 26px auto 70px;
 }
 
@@ -437,36 +521,39 @@
   border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
 }
 
+.console-row.rich > div {
+  display: grid;
+  gap: 8px;
+}
+
 .console-row:last-child {
   border-bottom: 0;
 }
 
-.console-row span {
+.console-row > span {
   color: var(--accent);
 }
 
-.console-row code {
+.console-row code,
+.timeline-item code {
   color: #d6ffe2;
   white-space: pre-wrap;
 }
 
-.timeline {
-  display: grid;
-  gap: 12px;
-  margin-top: 14px;
-}
-
 .timeline-item {
   display: grid;
-  gap: 4px;
+  gap: 8px;
   padding: 12px;
   border-left: 3px solid var(--accent);
   background: color-mix(in srgb, var(--bg) 40%, transparent);
   border-radius: 10px;
 }
 
-.timeline-item span {
-  color: var(--muted);
+.timeline-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
 }
 
 @media (max-width: 900px) {
@@ -488,13 +575,18 @@
     grid-template-columns: 1fr;
   }
 
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(80px, 1fr));
+  }
+
   .chat-top-bar,
   .workspace-header {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .console-row {
+  .console-row,
+  .compact-item {
     grid-template-columns: 1fr;
   }
 }

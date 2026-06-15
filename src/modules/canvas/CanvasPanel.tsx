@@ -1,8 +1,11 @@
-const nodes = [
-  ["Entrada", "Requisitos"],
-  ["Mestre", "Orquestracao"],
-  ["Revisor", "Critica"],
-  ["Console", "Validacao"],
+import { missions } from "../../state/argosOperationalState";
+
+const workflow = [
+  ["Entrada", "Requisitos e contexto"],
+  ["Mestre", "Plano de acao"],
+  ["Agentes", "Divisao de tarefas"],
+  ["Console", "Validacao humana"],
+  ["Auditoria", "Snapshot e historico"],
 ];
 
 export function CanvasPanel() {
@@ -11,7 +14,7 @@ export function CanvasPanel() {
       <div className="canvas-line" />
 
       <div className="canvas-node-list">
-        {nodes.map(([title, subtitle]) => (
+        {workflow.map(([title, subtitle]) => (
           <div className="canvas-node" key={title}>
             <strong>{title}</strong>
             <span>{subtitle}</span>
@@ -20,7 +23,7 @@ export function CanvasPanel() {
       </div>
 
       <p className="canvas-note">
-        Canvas visual inspirado na logica de workflows. Nesta fase e apenas mock visual.
+        Canvas v0.2 ainda e visual e local. Missoes carregadas: {missions.length}.
       </p>
     </div>
   );
