@@ -18,7 +18,7 @@ export function Topbar({ activeItem }: { activeItem: NavItem }) {
         <span className="pill">local</span>
         <span className="pill muted">API paga bloqueada</span>
         <BackendHealthBadge />
-        <a className="logout-link" href="/cdn-cgi/access/logout">Sair</a>
+        <a className="logout-link" href="https://argos-mvp-5sz-pages.cloudflareaccess.com/cdn-cgi/access/logout">Sair</a>
 
         <label className="theme-select-label">
           Tema
