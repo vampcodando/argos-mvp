@@ -13,7 +13,8 @@
     "deploy": "npm run build && wrangler pages deploy dist --project-name=argos-mvp --branch=main",
     "deploy:preview": "npm run build && wrangler pages deploy dist --project-name=argos-mvp --branch=preview",
     "delploy": "npm run deploy",
-    "local:ollama-bridge": "node tools/argos-local-ollama-bridge.mjs"
+    "local:ollama-bridge": "node tools/argos-local-ollama-bridge.mjs",
+    "local:supervisor": "node tools/argos-local-supervisor.mjs"
   },
   "dependencies": {
     "react": "^19.2.6",

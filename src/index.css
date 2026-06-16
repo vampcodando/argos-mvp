@@ -1015,3 +1015,22 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+
+.local-ai-status-partial {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border)) !important;
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+.local-ai-status-stopping {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 52%, var(--border)) !important;
+  background: color-mix(in srgb, var(--red) 10%, transparent) !important;
+}
+
+.local-ai-status-checking {
+  color: var(--muted);
+  border-color: var(--border) !important;
+  background: color-mix(in srgb, var(--panel) 80%, transparent) !important;
+}

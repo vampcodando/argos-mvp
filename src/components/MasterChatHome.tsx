@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_LOCAL_MODEL, LOCAL_OLLAMA_MODELS } from "../data/localModels";
 
+const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
 
 type ChatMessage = {
@@ -10,7 +11,7 @@ type ChatMessage = {
   status?: "normal" | "loading" | "error";
 };
 
-type BridgeStatus = "checking" | "online" | "offline";
+type LocalAiStatus = "checking" | "off" | "partial" | "starting" | "online" | "stopping" | "error";
 
 type BridgeModel = {
   id: string;
@@ -21,8 +22,25 @@ type BridgeModel = {
   installed: boolean;
 };
 
+type SupervisorStatusPayload = {
+  ok: boolean;
+  localAiReady: boolean;
+  ollama?: {
+    ok: boolean;
+    detectedModels?: string[];
+  };
+  bridge?: {
+    ok: boolean;
+  };
+  models?: BridgeModel[];
+};
+
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function hasAnyLocalService(payload: SupervisorStatusPayload) {
+  return Boolean(payload.ollama?.ok || payload.bridge?.ok || payload.localAiReady);
 }
 
 export function MasterChatHome() {
@@ -31,7 +49,7 @@ export function MasterChatHome() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [activeLoadingId, setActiveLoadingId] = useState<string | null>(null);
-  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>("offline");
+  const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus>("checking");
   const [bridgeModels, setBridgeModels] = useState<BridgeModel[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -40,15 +58,23 @@ export function MasterChatHome() {
       id: "welcome",
       role: "master",
       text:
-        "ARGOS pronto. Ponte local com Ollama pode responder usando qwen2.5:3b ou qwen2.5-coder:7b quando o bridge local estiver online.",
+        "ARGOS pronto. O supervisor local verifica se a IA ja esta ativa e permite ligar ou desligar tudo sob comando do usuario.",
     },
   ]);
+
+  useEffect(() => {
+    refreshSupervisorStatus();
+
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const models = bridgeModels.length
     ? bridgeModels.map((model) => ({
         id: model.id,
         name: model.name,
-        endpoint: "127.0.0.1:8787 -> 127.0.0.1:11434",
+        endpoint: "Supervisor 8786 -> Bridge 8787 -> Ollama 11434",
         size: model.size,
         role: model.installed ? model.role : `${model.role} Modelo nao instalado.`,
         status: model.preferred ? "preferred" : "heavy",
@@ -60,73 +86,174 @@ export function MasterChatHome() {
     [models, selectedModel]
   );
 
-  async function refreshBridge() {
-    setBridgeStatus("checking");
-
-    try {
-      const health = await fetch(`${LOCAL_AI_BRIDGE_URL}/local-ai/health`, {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
-      });
-
-      if (!health.ok) {
-        throw new Error(`Bridge health retornou ${health.status}`);
-      }
-
-      const modelsResponse = await fetch(`${LOCAL_AI_BRIDGE_URL}/local-ai/models`, {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
-      });
-
-      if (!modelsResponse.ok) {
-        throw new Error(`Bridge models retornou ${modelsResponse.status}`);
-      }
-
-      const payload = (await modelsResponse.json()) as {
-        ok: boolean;
-        models: BridgeModel[];
-      };
-
-      setBridgeModels(payload.models || []);
-      setBridgeStatus("online");
-    } catch {
-      setBridgeStatus("offline");
-      setBridgeModels([]);
-    }
+  function updateLoadingMessage(id: string, text: string, status: ChatMessage["status"] = "loading") {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id
+          ? {
+              ...message,
+              text,
+              status,
+            }
+          : message
+      )
+    );
   }
 
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-    };
-  }, []);
+  function applySupervisorStatus(payload: SupervisorStatusPayload) {
+    setBridgeModels(payload.models || []);
+
+    if (payload.localAiReady) {
+      setLocalAiStatus("online");
+      return;
+    }
+
+    if (hasAnyLocalService(payload)) {
+      setLocalAiStatus("partial");
+      return;
+    }
+
+    setLocalAiStatus("off");
+  }
+
+  async function refreshSupervisorStatus() {
+    setLocalAiStatus("checking");
+
+    try {
+      const response = await fetch(`${LOCAL_SUPERVISOR_URL}/local-supervisor/status`, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      const payload = (await response.json()) as SupervisorStatusPayload;
+
+      if (!response.ok || !payload.ok) {
+        throw new Error("Supervisor local nao respondeu corretamente.");
+      }
+
+      applySupervisorStatus(payload);
+    } catch {
+      setBridgeModels([]);
+      setLocalAiStatus("off");
+    }
+  }
 
   function cancelCurrentRequest() {
     abortRef.current?.abort();
     abortRef.current = null;
 
     if (activeLoadingId) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === activeLoadingId
-            ? {
-                ...message,
-                text: "Consulta cancelada pelo usuario.",
-                status: "error",
-              }
-            : message
-        )
-      );
+      updateLoadingMessage(activeLoadingId, "Consulta cancelada pelo usuario.", "error");
     }
 
     setSending(false);
     setActiveLoadingId(null);
+  }
+
+  async function startLocalAi(signal?: AbortSignal) {
+    setLocalAiStatus("starting");
+
+    const response = await fetch(`${LOCAL_SUPERVISOR_URL}/local-supervisor/start-ai`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+      },
+      signal,
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok || !payload.ok || !payload.localAiReady) {
+      throw new Error(
+        payload?.error?.message ||
+          "Nao foi possivel ligar IA local pelo supervisor."
+      );
+    }
+
+    applySupervisorStatus(payload);
+
+    return true;
+  }
+
+  async function handleStartLocalAiClick() {
+    if (sending || localAiStatus === "starting") {
+      return;
+    }
+
+    const loadingId = createId();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: loadingId,
+        role: "master",
+        text: "Ligando IA local pelo supervisor...",
+        status: "loading",
+      },
+    ]);
+
+    setSending(true);
+    setActiveLoadingId(loadingId);
+
+    try {
+      await startLocalAi(controller.signal);
+      updateLoadingMessage(loadingId, "IA local ligada. Ollama e ponte local estao online.", "normal");
+    } catch (error) {
+      setLocalAiStatus("error");
+      updateLoadingMessage(
+        loadingId,
+        error instanceof Error
+          ? error.message
+          : "Erro desconhecido ao ligar IA local.",
+        "error"
+      );
+    } finally {
+      abortRef.current = null;
+      setSending(false);
+      setActiveLoadingId(null);
+    }
+  }
+
+  async function handleStopLocalAiClick() {
+    if (sending) {
+      return;
+    }
+
+    setLocalAiStatus("stopping");
+
+    try {
+      const response = await fetch(`${LOCAL_SUPERVISOR_URL}/local-supervisor/stop-ai`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      const payload = (await response.json()) as SupervisorStatusPayload;
+
+      if (!response.ok || !payload.ok) {
+        throw new Error("Nao foi possivel desligar IA local pelo supervisor.");
+      }
+
+      applySupervisorStatus(payload);
+    } catch {
+      setLocalAiStatus("error");
+    }
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: createId(),
+        role: "master",
+        text: "Comando de desligamento enviado ao supervisor local.",
+        status: "normal",
+      },
+    ]);
   }
 
   async function handleSubmit() {
@@ -151,18 +278,16 @@ export function MasterChatHome() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const timeoutMs = selectedModel === "qwen2.5-coder:7b" ? 120000 : 60000;
-    const timeout = window.setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
-
     setMessages((current) => [
       ...current,
       userMessage,
       {
         id: loadingId,
         role: "master",
-        text: `Consultando ${selectedModel} via ponte local...`,
+        text:
+          localAiStatus === "online"
+            ? `Consultando ${selectedModel} via IA local...`
+            : "IA local desligada. Ligando pelo supervisor antes de enviar...",
         status: "loading",
       },
     ]);
@@ -172,6 +297,11 @@ export function MasterChatHome() {
     setActiveLoadingId(loadingId);
 
     try {
+      if (localAiStatus !== "online") {
+        await startLocalAi(controller.signal);
+        updateLoadingMessage(loadingId, `Consultando ${selectedModel} via IA local...`);
+      }
+
       const response = await fetch(`${LOCAL_AI_BRIDGE_URL}/local-ai/chat`, {
         method: "POST",
         headers: {
@@ -191,39 +321,28 @@ export function MasterChatHome() {
         throw new Error(payload?.error?.message || "Falha ao consultar IA local.");
       }
 
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === loadingId
-            ? {
-                ...message,
-                text: payload.response || "A IA local respondeu sem conteudo.",
-                status: "normal",
-              }
-            : message
-        )
+      updateLoadingMessage(
+        loadingId,
+        payload.response || "A IA local respondeu sem conteudo.",
+        "normal"
       );
     } catch (error) {
-      const cancelled =
-        error instanceof DOMException && error.name === "AbortError";
+      const cancelled = error instanceof DOMException && error.name === "AbortError";
 
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === loadingId
-            ? {
-                ...message,
-                text: cancelled
-                  ? "Consulta cancelada ou tempo limite atingido."
-                  : error instanceof Error
-                    ? error.message
-                    : "Erro desconhecido na ponte local com Ollama.",
-                status: "error",
-              }
-            : message
-        )
+      updateLoadingMessage(
+        loadingId,
+        cancelled
+          ? "Consulta cancelada ou tempo limite atingido."
+          : error instanceof Error
+            ? error.message
+            : "Erro desconhecido na IA local.",
+        "error"
       );
-    } finally {
-      window.clearTimeout(timeout);
 
+      if (!cancelled && localAiStatus !== "online") {
+        setLocalAiStatus("error");
+      }
+    } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
       }
@@ -233,12 +352,20 @@ export function MasterChatHome() {
     }
   }
 
-  const bridgeLabel =
-    bridgeStatus === "checking"
-      ? "ponte local: verificando"
-      : bridgeStatus === "online"
-        ? "ponte local: online"
-        : "ponte local: offline";
+  const statusLabel =
+    localAiStatus === "checking"
+      ? "IA local: verificando"
+      : localAiStatus === "online"
+        ? "IA local: online"
+        : localAiStatus === "partial"
+          ? "IA local: parcial ativa"
+          : localAiStatus === "starting"
+            ? "IA local: ligando"
+            : localAiStatus === "stopping"
+              ? "IA local: desligando"
+              : localAiStatus === "error"
+                ? "IA local: erro"
+                : "IA local: desligada";
 
   return (
     <section className="master-chat-home" aria-label="Painel inicial do Mestre">
@@ -248,19 +375,31 @@ export function MasterChatHome() {
         <p>Project Master local. Comando, contexto, validacao e auditoria.</p>
 
         <div className="master-chat-flags">
-          <span className={`local-ai-status local-ai-status-${bridgeStatus}`}>
-            {bridgeLabel}
+          <span className={`local-ai-status local-ai-status-${localAiStatus}`}>
+            {statusLabel}
           </span>
-          <button
-            type="button"
-            className="local-ai-connect-button"
-            onClick={refreshBridge}
-            disabled={bridgeStatus === "checking" || sending}
-            title="Conectar manualmente a ponte local do Ollama"
-          >
-            {bridgeStatus === "online" ? "reconectar IA local" : "conectar IA local"}
-          </button>
-          <span>Ollama 127.0.0.1:11434</span>
+
+          {localAiStatus === "online" || localAiStatus === "partial" || localAiStatus === "stopping" ? (
+            <button
+              type="button"
+              className="local-ai-connect-button"
+              onClick={handleStopLocalAiClick}
+              disabled={sending || localAiStatus === "stopping"}
+            >
+              {localAiStatus === "stopping" ? "desligando IA local" : "desligar IA local"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="local-ai-connect-button"
+              onClick={handleStartLocalAiClick}
+              disabled={sending || localAiStatus === "starting" || localAiStatus === "checking"}
+            >
+              {localAiStatus === "starting" ? "ligando IA local" : "ligar IA local"}
+            </button>
+          )}
+
+          <span>Ollama sob demanda</span>
           <span>API paga bloqueada</span>
           <span>Executor bloqueado</span>
         </div>
@@ -285,9 +424,11 @@ export function MasterChatHome() {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={
-            bridgeStatus === "online"
+            localAiStatus === "online"
               ? `Mensagem para ${activeModel.name}...`
-              : "Inicie a ponte local: npm run local:ollama-bridge"
+              : localAiStatus === "partial"
+                ? "Serviço local parcial ativo. Clique em Ligar IA local para completar ou Desligar IA local para encerrar."
+                : "IA local desligada. Clique em Ligar IA local para usar o chat."
           }
           rows={3}
           maxLength={2000}
@@ -311,7 +452,7 @@ export function MasterChatHome() {
               <div className="model-popover">
                 <div className="model-popover-head">
                   <strong>Modelos locais</strong>
-                  <small>Bridge 127.0.0.1:8787</small>
+                  <small>Supervisor local</small>
                 </div>
 
                 <div className="model-list">
@@ -363,14 +504,8 @@ export function MasterChatHome() {
             type="button"
             className={sending ? "chat-send-button chat-send-button-cancel" : "chat-send-button"}
             onClick={handleSubmit}
-            disabled={bridgeStatus !== "online"}
-            title={
-              sending
-                ? "Cancelar consulta"
-                : bridgeStatus === "online"
-                  ? "Enviar para IA local"
-                  : "Ponte local offline"
-            }
+            disabled={!sending && !draft.trim()}
+            title={sending ? "Cancelar consulta" : "Enviar para IA local"}
           >
             {sending ? "×" : "↑"}
           </button>
