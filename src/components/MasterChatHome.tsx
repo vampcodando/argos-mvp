@@ -23,6 +23,38 @@ type BridgeModel = {
   installed: boolean;
 };
 
+type OpenRouterApprovedModel = {
+  id: string;
+  label: string;
+  provider: string;
+  group: string;
+  contextLength: number;
+  recommendedFor: string[];
+  notes: string;
+};
+
+type OpenRouterStatusPayload = {
+  ok: boolean;
+  enabled: boolean;
+  keyPresent: boolean;
+  defaultModel: string;
+  freeOnly: boolean;
+  modelSelectionMode: string;
+  approvedModels?: OpenRouterApprovedModel[];
+};
+
+type ChatModelOption = {
+  id: string;
+  name: string;
+  endpoint: string;
+  size: string;
+  role: string;
+  status: string;
+  provider: "local" | "openrouter";
+  projectKind?: string;
+  dataClass?: string;
+};
+
 type SupervisorStatusPayload = {
   ok: boolean;
   localAiReady: boolean;
@@ -146,12 +178,15 @@ export function MasterChatHome() {
   const [activeLoadingId, setActiveLoadingId] = useState<string | null>(null);
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus>("checking");
   const [bridgeModels, setBridgeModels] = useState<BridgeModel[]>([]);
+  const [openRouterModels, setOpenRouterModels] = useState<OpenRouterApprovedModel[]>([]);
+  const [openRouterStatus, setOpenRouterStatus] = useState<OpenRouterStatusPayload | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages());
 
   useEffect(() => {
     refreshSupervisorStatus();
+    refreshOpenRouterStatus();
 
     return () => {
       abortRef.current?.abort();
@@ -162,7 +197,7 @@ export function MasterChatHome() {
     saveStoredMessages(messages);
   }, [messages]);
 
-  const models = bridgeModels.length
+  const localModels: ChatModelOption[] = bridgeModels.length
     ? bridgeModels.map((model) => ({
         id: model.id,
         name: model.name,
@@ -170,12 +205,36 @@ export function MasterChatHome() {
         size: model.size,
         role: model.installed ? model.role : `${model.role} Modelo nao instalado.`,
         status: model.preferred ? "preferred" : "heavy",
+        provider: "local",
       }))
-    : LOCAL_OLLAMA_MODELS;
+    : LOCAL_OLLAMA_MODELS.map((model) => ({
+        ...model,
+        provider: "local",
+      }));
+
+  const cloudModels: ChatModelOption[] = openRouterModels.map((model) => ({
+    id: model.id,
+    name: model.label,
+    endpoint: "Cloudflare backend -> OpenRouter Free",
+    size: model.provider,
+    role: `${model.group}. ${model.notes}`,
+    status: model.id === openRouterStatus?.defaultModel ? "preferred" : "heavy",
+    provider: "openrouter",
+    projectKind: "marketing",
+    dataClass: "generic_prompt",
+  }));
+
+  const models: ChatModelOption[] = [...localModels, ...cloudModels];
+
+  const fallbackModel: ChatModelOption =
+    models[0] ?? {
+      ...DEFAULT_LOCAL_MODEL,
+      provider: "local",
+    };
 
   const activeModel = useMemo(
-    () => models.find((model) => model.id === selectedModel) ?? DEFAULT_LOCAL_MODEL,
-    [models, selectedModel]
+    () => models.find((model) => model.id === selectedModel) ?? fallbackModel,
+    [fallbackModel, models, selectedModel]
   );
 
   function updateLoadingMessage(id: string, text: string, status: ChatMessage["status"] = "loading") {
@@ -230,6 +289,30 @@ export function MasterChatHome() {
     } catch {
       setBridgeModels([]);
       setLocalAiStatus("off");
+    }
+  }
+
+  async function refreshOpenRouterStatus() {
+    try {
+      const response = await fetch("/api/provider/openrouter", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      const payload = (await response.json()) as OpenRouterStatusPayload;
+
+      if (!response.ok || !payload.ok || !payload.enabled || !payload.keyPresent) {
+        throw new Error("Provider OpenRouter indisponivel.");
+      }
+
+      setOpenRouterStatus(payload);
+      setOpenRouterModels(payload.approvedModels || []);
+    } catch {
+      setOpenRouterStatus(null);
+      setOpenRouterModels([]);
     }
   }
 
@@ -360,6 +443,9 @@ export function MasterChatHome() {
       return;
     }
 
+    const promptWithContext = buildPromptWithConversationContext(value, messages);
+    const isOpenRouterModel = activeModel.provider === "openrouter";
+
     const userMessage: ChatMessage = {
       id: createId(),
       role: "user",
@@ -376,9 +462,10 @@ export function MasterChatHome() {
       {
         id: loadingId,
         role: "master",
-        text:
-          localAiStatus === "online"
-            ? `Consultando ${selectedModel} via IA local...`
+        text: isOpenRouterModel
+          ? `Consultando ${activeModel.name} via OpenRouter Free...`
+          : localAiStatus === "online"
+            ? `Consultando ${activeModel.name} via IA local...`
             : "IA local desligada. Ligando pelo supervisor antes de enviar...",
         status: "loading",
       },
@@ -389,9 +476,51 @@ export function MasterChatHome() {
     setActiveLoadingId(loadingId);
 
     try {
+      if (isOpenRouterModel) {
+        const response = await fetch("/api/provider/openrouter", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            projectKind: activeModel.projectKind || "marketing",
+            dataClass: activeModel.dataClass || "generic_prompt",
+            model: activeModel.id,
+            max_tokens: 1000,
+            messages: [
+              {
+                role: "user",
+                content: promptWithContext,
+              },
+            ],
+          }),
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+          throw new Error(
+            payload?.reason ||
+              payload?.error?.message ||
+              payload?.error?.error?.message ||
+              "Falha ao consultar OpenRouter Free."
+          );
+        }
+
+        updateLoadingMessage(
+          loadingId,
+          payload.response || "OpenRouter Free respondeu sem conteudo.",
+          "normal"
+        );
+
+        return;
+      }
+
       if (localAiStatus !== "online") {
         await startLocalAi(controller.signal);
-        updateLoadingMessage(loadingId, `Consultando ${selectedModel} via IA local...`);
+        updateLoadingMessage(loadingId, `Consultando ${activeModel.name} via IA local...`);
       }
 
       const response = await fetch(`${LOCAL_AI_BRIDGE_URL}/local-ai/chat`, {
@@ -402,8 +531,8 @@ export function MasterChatHome() {
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: selectedModel,
-          prompt: buildPromptWithConversationContext(value, messages),
+          model: activeModel.id,
+          prompt: promptWithContext,
         }),
       });
 
@@ -427,11 +556,13 @@ export function MasterChatHome() {
           ? "Consulta cancelada ou tempo limite atingido."
           : error instanceof Error
             ? error.message
-            : "Erro desconhecido na IA local.",
+            : isOpenRouterModel
+              ? "Erro desconhecido no OpenRouter Free."
+              : "Erro desconhecido na IA local.",
         "error"
       );
 
-      if (!cancelled && localAiStatus !== "online") {
+      if (!cancelled && !isOpenRouterModel && localAiStatus !== "online") {
         setLocalAiStatus("error");
       }
     } finally {
@@ -492,6 +623,11 @@ export function MasterChatHome() {
           )}
 
           <span>Ollama sob demanda</span>
+          <span>
+            {openRouterStatus?.enabled && openRouterStatus?.keyPresent
+              ? "OpenRouter Free: online"
+              : "OpenRouter Free: indisponivel"}
+          </span>
           <span>API paga bloqueada</span>
           <span>Executor bloqueado</span>
         </div>
@@ -516,11 +652,13 @@ export function MasterChatHome() {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={
-            localAiStatus === "online"
-              ? `Mensagem para ${activeModel.name}...`
-              : localAiStatus === "partial"
-                ? "Serviço local parcial ativo. Clique em Ligar IA local para completar ou Desligar IA local para encerrar."
-                : "IA local desligada. Clique em Ligar IA local para usar o chat."
+            activeModel.provider === "openrouter"
+              ? `Mensagem para ${activeModel.name} via OpenRouter Free...`
+              : localAiStatus === "online"
+                ? `Mensagem para ${activeModel.name}...`
+                : localAiStatus === "partial"
+                  ? "Serviço local parcial ativo. Clique em Ligar IA local para completar ou Desligar IA local para encerrar."
+                  : "IA local desligada. Clique em Ligar IA local para usar o chat."
           }
           rows={3}
           maxLength={2000}
@@ -543,8 +681,8 @@ export function MasterChatHome() {
             {modelsOpen ? (
               <div className="model-popover">
                 <div className="model-popover-head">
-                  <strong>Modelos locais</strong>
-                  <small>Supervisor local</small>
+                  <strong>Modelos permitidos</strong>
+                  <small>Local Ollama + OpenRouter Free aprovado</small>
                 </div>
 
                 <div className="model-list">
@@ -576,7 +714,7 @@ export function MasterChatHome() {
                 </div>
 
                 <button type="button" className="model-add-future" disabled>
-                  Somente modelos permitidos nesta fase
+                  Somente modelos locais ou free aprovados
                 </button>
               </div>
             ) : null}
@@ -597,7 +735,7 @@ export function MasterChatHome() {
             className={sending ? "chat-send-button chat-send-button-cancel" : "chat-send-button"}
             onClick={handleSubmit}
             disabled={!sending && !draft.trim()}
-            title={sending ? "Cancelar consulta" : "Enviar para IA local"}
+            title={sending ? "Cancelar consulta" : "Enviar para modelo selecionado"}
           >
             {sending ? "×" : "↑"}
           </button>
