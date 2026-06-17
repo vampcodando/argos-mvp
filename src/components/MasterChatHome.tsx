@@ -310,6 +310,7 @@ export function MasterChatHome() {
     refreshOpenRouterStatus();
     refreshGeminiStatus();
     refreshCloudflareImageStatus();
+    refreshCloudflareImageStatus();
 
     return () => {
       abortRef.current?.abort();
