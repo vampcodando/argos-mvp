@@ -8,7 +8,104 @@
   });
 }
 
-const OPENROUTER_FREE_ROUTER = "openrouter/free";
+const APPROVED_OPENROUTER_MODELS = [
+  {
+    id: "google/gemma-4-31b-it:free",
+    label: "Gemma 4 31B",
+    provider: "Google",
+    group: "Geral / Marketing",
+    contextLength: 262144,
+    recommendedFor: ["chat", "marketing", "prompts", "texto"],
+    notes: "Primeira escolha para uso geral no ARGOS cloud free.",
+  },
+  {
+    id: "google/gemma-4-26b-a4b-it:free",
+    label: "Gemma 4 26B A4B",
+    provider: "Google",
+    group: "Geral / Fallback",
+    contextLength: 262144,
+    recommendedFor: ["chat", "marketing", "fallback"],
+    notes: "Alternativa ao Gemma 4 31B.",
+  },
+  {
+    id: "qwen/qwen3-next-80b-a3b-instruct:free",
+    label: "Qwen3 Next 80B Instruct",
+    provider: "Qwen",
+    group: "Marketing / Estruturado",
+    contextLength: 262144,
+    recommendedFor: ["marketing", "ideias", "roteiros", "respostas estruturadas"],
+    notes: "Bom candidato para prompts criativos e respostas organizadas.",
+  },
+  {
+    id: "meta-llama/llama-3.3-70b-instruct:free",
+    label: "Llama 3.3 70B Instruct",
+    provider: "Meta",
+    group: "Geral",
+    contextLength: 131072,
+    recommendedFor: ["chat", "texto", "planejamento"],
+    notes: "Modelo geral forte para comparacao.",
+  },
+  {
+    id: "openai/gpt-oss-120b:free",
+    label: "OpenAI gpt-oss 120B",
+    provider: "OpenAI",
+    group: "Raciocinio / Planejamento",
+    contextLength: 131072,
+    recommendedFor: ["planejamento", "analise", "raciocinio"],
+    notes: "Usar quando quiser testar raciocinio mais forte em modelo free.",
+  },
+  {
+    id: "openai/gpt-oss-20b:free",
+    label: "OpenAI gpt-oss 20B",
+    provider: "OpenAI",
+    group: "Rapido / Fallback",
+    contextLength: 131072,
+    recommendedFor: ["chat", "resumo", "fallback"],
+    notes: "Opcao menor e possivelmente mais rapida.",
+  },
+  {
+    id: "qwen/qwen3-coder:free",
+    label: "Qwen3 Coder",
+    provider: "Qwen",
+    group: "Codigo",
+    contextLength: 1048576,
+    recommendedFor: ["codigo", "debug", "patches", "arquitetura"],
+    notes: "Modelo reservado para tarefas de codigo e engenharia.",
+  },
+  {
+    id: "nousresearch/hermes-3-llama-3.1-405b:free",
+    label: "Hermes 3 405B",
+    provider: "Nous Research",
+    group: "Agente / Instrucoes",
+    contextLength: 131072,
+    recommendedFor: ["agente", "instrucoes longas", "planejamento"],
+    notes: "Bom candidato para comportamento de agente e execucao de instrucoes.",
+  },
+  {
+    id: "nvidia/nemotron-3-super-120b-a12b:free",
+    label: "Nemotron 3 Super 120B",
+    provider: "NVIDIA",
+    group: "Raciocinio",
+    contextLength: 1000000,
+    recommendedFor: ["analise longa", "raciocinio", "contexto grande"],
+    notes: "Contexto muito grande; testar estabilidade antes de usar como padrao.",
+  },
+  {
+    id: "nvidia/nemotron-nano-12b-v2-vl:free",
+    label: "Nemotron Nano 12B VL",
+    provider: "NVIDIA",
+    group: "Visao / Futuro",
+    contextLength: 128000,
+    recommendedFor: ["visao", "imagem", "multimodal futuro"],
+    notes: "Reservado para testes futuros de visao/multimodal.",
+  },
+];
+
+const APPROVED_MODEL_IDS = new Set(
+  APPROVED_OPENROUTER_MODELS.map((model) => model.id)
+);
+
+const DEFAULT_APPROVED_MODEL = "google/gemma-4-31b-it:free";
 
 const MARKETING_PROJECTS = new Set([
   "marketing",
@@ -43,15 +140,25 @@ const SENSITIVE_DATA = new Set([
 ]);
 
 function normalizeOpenRouterModel(model) {
-  const requestedModel = String(model || OPENROUTER_FREE_ROUTER).trim();
+  const requestedModel = String(model || DEFAULT_APPROVED_MODEL).trim();
 
-  if (requestedModel === OPENROUTER_FREE_ROUTER || requestedModel.endsWith(":free")) {
+  if (APPROVED_MODEL_IDS.has(requestedModel)) {
     return requestedModel;
   }
 
   throw new Error(
-    "ARGOS permite somente modelos gratuitos da OpenRouter: openrouter/free ou modelos com sufixo :free."
+    "ARGOS permite somente modelos free aprovados na lista interna. openrouter/free, openrouter/auto e modelos pagos ficam bloqueados."
   );
+}
+
+function getDefaultModel(context) {
+  try {
+    return normalizeOpenRouterModel(
+      context.env.OPENROUTER_DEFAULT_MODEL || DEFAULT_APPROVED_MODEL
+    );
+  } catch {
+    return DEFAULT_APPROVED_MODEL;
+  }
 }
 
 function evaluatePolicy(payload) {
@@ -102,15 +209,7 @@ function normalizeMessages(messages) {
 }
 
 export async function onRequestGet(context) {
-  let defaultModel = OPENROUTER_FREE_ROUTER;
-
-  try {
-    defaultModel = normalizeOpenRouterModel(
-      context.env.OPENROUTER_DEFAULT_MODEL || OPENROUTER_FREE_ROUTER
-    );
-  } catch {
-    defaultModel = OPENROUTER_FREE_ROUTER;
-  }
+  const defaultModel = getDefaultModel(context);
 
   return json({
     ok: true,
@@ -119,7 +218,9 @@ export async function onRequestGet(context) {
     keyPresent: Boolean(context.env.OPENROUTER_API_KEY),
     defaultModel,
     freeOnly: true,
-    allowedModelRule: "Somente openrouter/free ou modelos com sufixo :free.",
+    modelSelectionMode: "approved_free_allowlist",
+    allowedModelRule: "Somente modelos listados em approvedModels.",
+    approvedModels: APPROVED_OPENROUTER_MODELS,
     policy: {
       cloudAllowedFor: Array.from(MARKETING_PROJECTS),
       cloudBlockedFor: Array.from(SENSITIVE_PROJECTS),
@@ -180,7 +281,7 @@ export async function onRequestPost(context) {
     model = normalizeOpenRouterModel(
       payload.model ||
       context.env.OPENROUTER_DEFAULT_MODEL ||
-      OPENROUTER_FREE_ROUTER
+      DEFAULT_APPROVED_MODEL
     );
   } catch (error) {
     return json({
@@ -223,6 +324,7 @@ export async function onRequestPost(context) {
       provider: "openrouter",
       model,
       freeOnly: true,
+      modelSelectionMode: "approved_free_allowlist",
       error: data,
     }, response.status);
   }
@@ -232,6 +334,7 @@ export async function onRequestPost(context) {
     provider: "openrouter",
     model,
     freeOnly: true,
+    modelSelectionMode: "approved_free_allowlist",
     response: data?.choices?.[0]?.message?.content || "",
     raw: data,
   });
