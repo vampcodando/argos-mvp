@@ -3,7 +3,9 @@ import { DEFAULT_LOCAL_MODEL, LOCAL_OLLAMA_MODELS } from "../data/localModels";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
-const MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
+const LEGACY_MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
+const MASTER_CHAT_STORAGE_PREFIX = "argos.masterChat.messagesByModel.v1";
+const MASTER_CHAT_SELECTED_MODEL_KEY = "argos.masterChat.selectedModel.v1";
 
 type ChatMessage = {
   id: string;
@@ -72,6 +74,73 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function getModelMessagesStorageKey(modelId: string) {
+  return `${MASTER_CHAT_STORAGE_PREFIX}.${encodeURIComponent(modelId)}`;
+}
+
+function loadStoredSelectedModel() {
+  if (typeof window === "undefined") {
+    return DEFAULT_LOCAL_MODEL.id;
+  }
+
+  try {
+    return window.localStorage.getItem(MASTER_CHAT_SELECTED_MODEL_KEY) || DEFAULT_LOCAL_MODEL.id;
+  } catch {
+    return DEFAULT_LOCAL_MODEL.id;
+  }
+}
+
+function saveStoredSelectedModel(modelId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(MASTER_CHAT_SELECTED_MODEL_KEY, modelId);
+  } catch {
+    // armazenamento local indisponivel; nao quebra a selecao visual
+  }
+}
+
+function clearStoredMessagesForModel(modelId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(getModelMessagesStorageKey(modelId));
+
+    if (modelId === DEFAULT_LOCAL_MODEL.id) {
+      window.localStorage.removeItem(LEGACY_MASTER_CHAT_STORAGE_KEY);
+    }
+  } catch {
+    // limpeza local indisponivel; nao quebra o chat
+  }
+}
+
+function clearAllStoredMessages() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const keysToRemove: string[] = [];
+
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+
+      if (key?.startsWith(MASTER_CHAT_STORAGE_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+    window.localStorage.removeItem(LEGACY_MASTER_CHAT_STORAGE_KEY);
+  } catch {
+    // limpeza local indisponivel; nao quebra o chat
+  }
+}
+
 function hasAnyLocalService(payload: SupervisorStatusPayload) {
   return Boolean(payload.ollama?.ok || payload.bridge?.ok || payload.localAiReady);
 }
@@ -100,13 +169,17 @@ function isStoredChatMessage(value: unknown): value is ChatMessage {
   );
 }
 
-function loadStoredMessages(): ChatMessage[] {
+function loadStoredMessages(modelId: string): ChatMessage[] {
   if (typeof window === "undefined") {
     return DEFAULT_MASTER_MESSAGES;
   }
 
   try {
-    const raw = window.localStorage.getItem(MASTER_CHAT_STORAGE_KEY);
+    const raw =
+      window.localStorage.getItem(getModelMessagesStorageKey(modelId)) ||
+      (modelId === DEFAULT_LOCAL_MODEL.id
+        ? window.localStorage.getItem(LEGACY_MASTER_CHAT_STORAGE_KEY)
+        : null);
 
     if (!raw) {
       return DEFAULT_MASTER_MESSAGES;
@@ -132,7 +205,7 @@ function loadStoredMessages(): ChatMessage[] {
   }
 }
 
-function saveStoredMessages(messages: ChatMessage[]) {
+function saveStoredMessages(modelId: string, messages: ChatMessage[]) {
   if (typeof window === "undefined") {
     return;
   }
@@ -142,7 +215,10 @@ function saveStoredMessages(messages: ChatMessage[]) {
       .filter((message) => message.status !== "loading")
       .slice(-80);
 
-    window.localStorage.setItem(MASTER_CHAT_STORAGE_KEY, JSON.stringify(safeMessages));
+    window.localStorage.setItem(
+      getModelMessagesStorageKey(modelId),
+      JSON.stringify(safeMessages)
+    );
   } catch {
     // armazenamento local indisponivel ou cheio; nao quebra o chat
   }
@@ -171,7 +247,7 @@ function buildPromptWithConversationContext(currentPrompt: string, history: Chat
 }
 
 export function MasterChatHome() {
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_LOCAL_MODEL.id);
+  const [selectedModel, setSelectedModel] = useState(() => loadStoredSelectedModel());
   const [modelsOpen, setModelsOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -182,7 +258,9 @@ export function MasterChatHome() {
   const [openRouterStatus, setOpenRouterStatus] = useState<OpenRouterStatusPayload | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages());
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    loadStoredMessages(loadStoredSelectedModel())
+  );
 
   useEffect(() => {
     refreshSupervisorStatus();
@@ -194,8 +272,9 @@ export function MasterChatHome() {
   }, []);
 
   useEffect(() => {
-    saveStoredMessages(messages);
-  }, [messages]);
+    saveStoredSelectedModel(selectedModel);
+    saveStoredMessages(selectedModel, messages);
+  }, [messages, selectedModel]);
 
   const localModels: ChatModelOption[] = bridgeModels.length
     ? bridgeModels.map((model) => ({
@@ -236,6 +315,35 @@ export function MasterChatHome() {
     () => models.find((model) => model.id === selectedModel) ?? fallbackModel,
     [fallbackModel, models, selectedModel]
   );
+
+  function handleModelSelect(modelId: string) {
+    if (sending) {
+      return;
+    }
+
+    setSelectedModel(modelId);
+    saveStoredSelectedModel(modelId);
+    setMessages(loadStoredMessages(modelId));
+    setModelsOpen(false);
+  }
+
+  function handleClearCurrentChat() {
+    if (sending) {
+      return;
+    }
+
+    clearStoredMessagesForModel(selectedModel);
+    setMessages(DEFAULT_MASTER_MESSAGES);
+  }
+
+  function handleClearAllChats() {
+    if (sending) {
+      return;
+    }
+
+    clearAllStoredMessages();
+    setMessages(DEFAULT_MASTER_MESSAGES);
+  }
 
   function updateLoadingMessage(id: string, text: string, status: ChatMessage["status"] = "loading") {
     setMessages((current) =>
@@ -602,7 +710,16 @@ export function MasterChatHome() {
             {statusLabel}
           </span>
 
-          {localAiStatus === "online" || localAiStatus === "partial" || localAiStatus === "stopping" ? (
+          {activeModel.provider === "openrouter" ? (
+            <button
+              type="button"
+              className="local-ai-connect-button"
+              disabled
+              title="Modelo OpenRouter Free usa backend Cloudflare e nao precisa ligar Ollama local."
+            >
+              API Free selecionada
+            </button>
+          ) : localAiStatus === "online" || localAiStatus === "partial" || localAiStatus === "stopping" ? (
             <button
               type="button"
               className="local-ai-connect-button"
@@ -686,31 +803,95 @@ export function MasterChatHome() {
                 </div>
 
                 <div className="model-list">
-                  {models.map((model) => (
-                    <button
-                      key={model.id}
-                      type="button"
-                      className={
-                        model.id === selectedModel
-                          ? "model-option model-option-active"
-                          : "model-option"
-                      }
-                      onClick={() => {
-                        setSelectedModel(model.id);
-                        setModelsOpen(false);
-                      }}
-                      disabled={sending}
-                    >
-                      <span className="model-option-main">
-                        <strong>{model.name}</strong>
-                        <small>{model.endpoint}</small>
-                      </span>
-                      <span className={`model-chip model-chip-${model.status}`}>
-                        {model.size}
-                      </span>
-                      <em>{model.role}</em>
-                    </button>
-                  ))}
+                  {localModels.length ? (
+                    <>
+                      <div className="model-section-label">IA LOCAL / OLLAMA</div>
+
+                      {localModels.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          className={
+                            model.id === selectedModel
+                              ? "model-option model-option-active"
+                              : "model-option"
+                          }
+                          onClick={() => handleModelSelect(model.id)}
+                          disabled={sending}
+                        >
+                          <span className="model-option-main">
+                            <strong>{model.name}</strong>
+                            <small>{model.endpoint}</small>
+                          </span>
+
+                          <span className="model-chip model-chip-preferred">LOCAL</span>
+
+                          <span className={`model-chip model-chip-${model.status}`}>
+                            {model.size}
+                          </span>
+
+                          <em>{model.role}</em>
+                        </button>
+                      ))}
+                    </>
+                  ) : null}
+
+                  {cloudModels.length ? (
+                    <>
+                      <div className="model-section-label">IA API FREE / OPENROUTER</div>
+
+                      {cloudModels.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          className={
+                            model.id === selectedModel
+                              ? "model-option model-option-active"
+                              : "model-option"
+                          }
+                          onClick={() => handleModelSelect(model.id)}
+                          disabled={sending}
+                        >
+                          <span className="model-option-main">
+                            <strong>{model.name}</strong>
+                            <small>{model.endpoint}</small>
+                          </span>
+
+                          <span className="model-chip model-chip-preferred">API FREE</span>
+
+                          <span className={`model-chip model-chip-${model.status}`}>
+                            {model.size}
+                          </span>
+
+                          <em>{model.role}</em>
+                        </button>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="model-section-label">
+                      IA API FREE indisponivel ou bloqueada pelo backend
+                    </div>
+                  )}
+                </div>
+
+                <div className="model-clean-actions">
+                  <button
+                    type="button"
+                    className="model-add-future"
+                    onClick={handleClearCurrentChat}
+                    disabled={sending}
+                  >
+                    Limpar chat deste modelo
+                  </button>
+
+                  <button
+                    type="button"
+                    className="model-add-future"
+                    onClick={handleClearAllChats}
+                    disabled={sending}
+                  >
+                    Limpar todos os chats
+                  </button>
                 </div>
 
                 <button type="button" className="model-add-future" disabled>
@@ -721,7 +902,9 @@ export function MasterChatHome() {
           </div>
 
           <div className="selected-model-pill">
-            <span>{activeModel.name}</span>
+            <span>
+              {activeModel.provider === "openrouter" ? "API FREE" : "LOCAL"} · {activeModel.name}
+            </span>
             <small>{activeModel.endpoint}</small>
           </div>
 
