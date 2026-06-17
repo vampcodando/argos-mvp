@@ -42,6 +42,8 @@ const BLOCKED_DATA_CLASSES = new Set([
   "database_content",
 ]);
 
+const FLUX_PROMPT_LIMIT = 2048;
+
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload, null, 2), {
     status,
@@ -76,40 +78,11 @@ function evaluatePolicy(projectKind, dataClass) {
   return null;
 }
 
-function arrayBufferToBase64(value) {
-  const bytes =
-    value instanceof Uint8Array
-      ? value
-      : value instanceof ArrayBuffer
-        ? new Uint8Array(value)
-        : null;
-
-  if (!bytes) {
-    return null;
-  }
-
-  let binary = "";
-  const chunk = 0x8000;
-
-  for (let index = 0; index < bytes.length; index += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
-  }
-
-  return btoa(binary);
-}
-
-
-const FLUX_PROMPT_LIMIT = 2048;
-
 function compactFluxPrompt(prompt) {
   const normalized = String(prompt || "")
-    .replace(//g, "
-")
-    .replace(/[ 	]+/g, " ")
-    .replace(/
-{3,}/g, "
-
-")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 
   if (normalized.length <= FLUX_PROMPT_LIMIT) {
@@ -143,8 +116,7 @@ function compactFluxPrompt(prompt) {
   ];
 
   const lines = normalized
-    .split("
-")
+    .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
@@ -165,8 +137,7 @@ function compactFluxPrompt(prompt) {
   let compacted = "";
 
   for (const line of ordered) {
-    const candidate = compacted ? `${compacted}
-${line}` : line;
+    const candidate = compacted ? `${compacted}\n${line}` : line;
 
     if (candidate.length > FLUX_PROMPT_LIMIT) {
       continue;
@@ -179,16 +150,19 @@ ${line}` : line;
     compacted = normalized.slice(0, FLUX_PROMPT_LIMIT);
   }
 
-  if (compacted.length < Math.min(900, FLUX_PROMPT_LIMIT) && normalized.length > compacted.length) {
+  if (
+    compacted.length < Math.min(900, FLUX_PROMPT_LIMIT) &&
+    normalized.length > compacted.length
+  ) {
     const remaining = normalized
       .replace(compacted, "")
       .replace(/\s+/g, " ")
       .trim();
 
     const room = FLUX_PROMPT_LIMIT - compacted.length - 1;
+
     if (room > 120) {
-      compacted = `${compacted}
-${remaining.slice(0, room)}`.trim();
+      compacted = `${compacted}\n${remaining.slice(0, room)}`.trim();
     }
   }
 
@@ -198,6 +172,28 @@ ${remaining.slice(0, room)}`.trim();
     originalLength: normalized.length,
     compactedLength: Math.min(compacted.length, FLUX_PROMPT_LIMIT),
   };
+}
+
+function arrayBufferToBase64(value) {
+  const bytes =
+    value instanceof Uint8Array
+      ? value
+      : value instanceof ArrayBuffer
+        ? new Uint8Array(value)
+        : null;
+
+  if (!bytes) {
+    return null;
+  }
+
+  let binary = "";
+  const chunk = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+
+  return btoa(binary);
 }
 
 function extractImageBase64(result) {
@@ -266,6 +262,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   let body = {};
+
   try {
     body = await request.json();
   } catch {
@@ -291,6 +288,7 @@ export async function onRequestPost({ request, env }) {
   }
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+
   if (!prompt) {
     return jsonResponse(
       {
