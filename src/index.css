@@ -1405,3 +1405,14 @@
 
 /* ARGOS GEMINI VISUAL DUO END */
 
+
+/* ARGOS CLOUDFLARE FLUX START */
+
+.model-chip-imagem-free {
+  background: color-mix(in srgb, #4f46e5 18%, transparent);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+/* ARGOS CLOUDFLARE FLUX END */
+

@@ -66,6 +66,23 @@ type GeminiStatusPayload = {
   approvedModels?: GeminiVisualModel[];
 };
 
+type CloudflareImageModel = {
+  id: string;
+  label: string;
+  provider: string;
+  group: string;
+  role: string;
+  description: string;
+};
+
+type CloudflareImageStatusPayload = {
+  ok: boolean;
+  bindingPresent: boolean;
+  defaultModel: string;
+  routingRule: string;
+  approvedModels?: CloudflareImageModel[];
+};
+
 type ChatModelOption = {
   id: string;
   name: string;
@@ -73,7 +90,7 @@ type ChatModelOption = {
   size: string;
   role: string;
   status: string;
-  provider: "local" | "openrouter" | "gemini";
+  provider: "local" | "openrouter" | "gemini" | "cloudflare_image";
   projectKind?: string;
   dataClass?: string;
   geminiMode?: "prompt_builder" | "image_generation";
@@ -280,6 +297,8 @@ export function MasterChatHome() {
   const [openRouterStatus, setOpenRouterStatus] = useState<OpenRouterStatusPayload | null>(null);
   const [geminiModels, setGeminiModels] = useState<GeminiVisualModel[]>([]);
   const [geminiStatus, setGeminiStatus] = useState<GeminiStatusPayload | null>(null);
+  const [cloudflareImageModels, setCloudflareImageModels] = useState<CloudflareImageModel[]>([]);
+  const [cloudflareImageStatus, setCloudflareImageStatus] = useState<CloudflareImageStatusPayload | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
@@ -290,6 +309,7 @@ export function MasterChatHome() {
     refreshSupervisorStatus();
     refreshOpenRouterStatus();
     refreshGeminiStatus();
+    refreshCloudflareImageStatus();
 
     return () => {
       abortRef.current?.abort();
@@ -348,7 +368,24 @@ export function MasterChatHome() {
     geminiMode: model.mode,
   }));
 
-  const models: ChatModelOption[] = [...localModels, ...cloudModels, ...geminiChatModels];
+  const cloudflareImageChatModels: ChatModelOption[] = cloudflareImageModels.map((model) => ({
+    id: model.id,
+    name: model.label,
+    endpoint: "Cloudflare Workers AI -> gerador de imagem free",
+    size: "IMAGEM FREE",
+    role: model.description,
+    status: model.id === cloudflareImageStatus?.defaultModel ? "preferred" : "heavy",
+    provider: "cloudflare_image",
+    projectKind: "marketing",
+    dataClass: "creative_asset",
+  }));
+
+  const models: ChatModelOption[] = [
+    ...localModels,
+    ...cloudModels,
+    ...geminiChatModels,
+    ...cloudflareImageChatModels,
+  ];
 
   const fallbackModel: ChatModelOption =
     models[0] ?? {
@@ -499,6 +536,30 @@ export function MasterChatHome() {
     }
   }
 
+  async function refreshCloudflareImageStatus() {
+    try {
+      const response = await fetch("/api/provider/cloudflare-image", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      const payload = (await response.json()) as CloudflareImageStatusPayload;
+
+      if (!response.ok || !payload.ok || !payload.bindingPresent) {
+        throw new Error("Provider Cloudflare Image indisponivel.");
+      }
+
+      setCloudflareImageStatus(payload);
+      setCloudflareImageModels(payload.approvedModels || []);
+    } catch {
+      setCloudflareImageStatus(null);
+      setCloudflareImageModels([]);
+    }
+  }
+
   function cancelCurrentRequest() {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -629,6 +690,7 @@ export function MasterChatHome() {
     const promptWithContext = buildPromptWithConversationContext(value, messages);
     const isOpenRouterModel = activeModel.provider === "openrouter";
     const isGeminiModel = activeModel.provider === "gemini";
+    const isCloudflareImageModel = activeModel.provider === "cloudflare_image";
 
     const userMessage: ChatMessage = {
       id: createId(),
@@ -646,12 +708,14 @@ export function MasterChatHome() {
       {
         id: loadingId,
         role: "master",
-        text: isGeminiModel
-          ? activeModel.geminiMode === "image_generation"
-            ? `Gerando imagem com ${activeModel.name}...`
-            : `Construindo prompt/JSON com ${activeModel.name}...`
-          : isOpenRouterModel
-            ? `Consultando ${activeModel.name} via OpenRouter Free...`
+        text: isCloudflareImageModel
+          ? `Gerando imagem com ${activeModel.name}...`
+          : isGeminiModel
+            ? activeModel.geminiMode === "image_generation"
+              ? `Gerando imagem com ${activeModel.name}...`
+              : `Construindo prompt/JSON com ${activeModel.name}...`
+            : isOpenRouterModel
+              ? `Consultando ${activeModel.name} via OpenRouter Free...`
             : localAiStatus === "online"
             ? `Consultando ${activeModel.name} via IA local...`
             : "IA local desligada. Ligando pelo supervisor antes de enviar...",
@@ -664,6 +728,45 @@ export function MasterChatHome() {
     setActiveLoadingId(loadingId);
 
     try {
+      if (isCloudflareImageModel) {
+        const response = await fetch("/api/provider/cloudflare-image", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            projectKind: activeModel.projectKind || "marketing",
+            dataClass: activeModel.dataClass || "creative_asset",
+            model: activeModel.id,
+            prompt: promptWithContext,
+          }),
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+          throw new Error(
+            payload?.reason || "Falha ao consultar Cloudflare Workers AI."
+          );
+        }
+
+        updateLoadingMessage(
+          loadingId,
+          payload.response || "Imagem gerada pelo Cloudflare Workers AI.",
+          "normal",
+          payload.imageBase64
+            ? {
+                imageBase64: payload.imageBase64,
+                imageMimeType: payload.mimeType || "image/jpeg",
+              }
+            : undefined
+        );
+
+        return;
+      }
+
       if (isGeminiModel) {
         const response = await fetch("/api/provider/gemini", {
           method: "POST",
@@ -791,15 +894,17 @@ export function MasterChatHome() {
           ? "Consulta cancelada ou tempo limite atingido."
           : error instanceof Error
             ? error.message
-            : isGeminiModel
-              ? "Erro desconhecido no Gemini Visual."
-              : isOpenRouterModel
-                ? "Erro desconhecido no OpenRouter Free."
-                : "Erro desconhecido na IA local.",
+            : isCloudflareImageModel
+              ? "Erro desconhecido no Cloudflare Workers AI."
+              : isGeminiModel
+                ? "Erro desconhecido no Gemini Visual."
+                : isOpenRouterModel
+                  ? "Erro desconhecido no OpenRouter Free."
+                  : "Erro desconhecido na IA local.",
         "error"
       );
 
-      if (!cancelled && !isOpenRouterModel && !isGeminiModel && localAiStatus !== "online") {
+      if (!cancelled && !isOpenRouterModel && !isGeminiModel && !isCloudflareImageModel && localAiStatus !== "online") {
         setLocalAiStatus("error");
       }
     } finally {
@@ -843,7 +948,16 @@ export function MasterChatHome() {
             {statusLabel}
           </span>
 
-          {activeModel.provider === "gemini" ? (
+          {activeModel.provider === "cloudflare_image" ? (
+            <button
+              type="button"
+              className="local-ai-connect-button"
+              disabled
+              title="FLUX.1 Schnell usa Workers AI no backend Cloudflare e nao precisa ligar Ollama local."
+            >
+              Flux Imagem selecionado
+            </button>
+          ) : activeModel.provider === "gemini" ? (
             <button
               type="button"
               className="local-ai-connect-button"
@@ -894,7 +1008,12 @@ export function MasterChatHome() {
               ? "Gemini Visual: online"
               : "Gemini Visual: indisponivel"}
           </span>
-          <span>Gemini imagem: marketing only</span>
+          <span>
+            {cloudflareImageStatus?.bindingPresent
+              ? "Cloudflare Flux: online"
+              : "Cloudflare Flux: indisponivel"}
+          </span>
+          <span>Gemini = prompt / Flux = imagem</span>
           <span>API paga bloqueada</span>
           <span>Executor bloqueado</span>
         </div>
@@ -926,12 +1045,14 @@ export function MasterChatHome() {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={
-            activeModel.provider === "gemini"
-              ? activeModel.geminiMode === "image_generation"
-                ? "Descreva a imagem final para gerar no Gemini 2.5 Flash Image..."
-                : "Peça um prompt, JSON, roteiro ou comando para imagem/vídeo..."
-              : activeModel.provider === "openrouter"
-                ? `Mensagem para ${activeModel.name} via OpenRouter Free...`
+            activeModel.provider === "cloudflare_image"
+              ? "Descreva a imagem final para gerar no FLUX.1 Schnell..."
+              : activeModel.provider === "gemini"
+                ? activeModel.geminiMode === "image_generation"
+                  ? "Descreva a imagem final para gerar no Gemini 2.5 Flash Image..."
+                  : "Peça um prompt, JSON, roteiro ou comando para imagem/vídeo..."
+                : activeModel.provider === "openrouter"
+                  ? `Mensagem para ${activeModel.name} via OpenRouter Free...`
                 : localAiStatus === "online"
                 ? `Mensagem para ${activeModel.name}...`
                 : localAiStatus === "partial"
@@ -1070,6 +1191,41 @@ export function MasterChatHome() {
                     </>
                   ) : null}
 
+                  {cloudflareImageChatModels.length ? (
+                    <>
+                      <div className="model-section-label">IA IMAGEM / CLOUDFLARE FREE</div>
+
+                      {cloudflareImageChatModels.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          className={
+                            model.id === selectedModel
+                              ? "model-option model-option-active"
+                              : "model-option"
+                          }
+                          onClick={() => handleModelSelect(model.id)}
+                          disabled={sending}
+                        >
+                          <span className="model-option-main">
+                            <strong>{model.name}</strong>
+                            <small>{model.endpoint}</small>
+                          </span>
+
+                          <span className="model-chip model-chip-preferred">
+                            USAR PARA IMAGEM
+                          </span>
+
+                          <span className={`model-chip model-chip-${model.status}`}>
+                            {model.size}
+                          </span>
+
+                          <em>{model.role}</em>
+                        </button>
+                      ))}
+                    </>
+                  ) : null}
+
                 <div className="model-clean-actions">
                   <button
                     type="button"
@@ -1105,7 +1261,9 @@ export function MasterChatHome() {
                   ? activeModel.geminiMode === "image_generation"
                     ? "GEMINI IMAGEM"
                     : "GEMINI PROMPT"
-                  : "LOCAL"}{" "}
+                  : activeModel.provider === "cloudflare_image"
+                    ? "FLUX IMAGEM"
+                    : "LOCAL"}{" "}
               · {activeModel.name}
             </span>
             <small>{activeModel.endpoint}</small>

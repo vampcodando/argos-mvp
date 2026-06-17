@@ -367,3 +367,16 @@
 
 /* ARGOS GEMINI VISUAL MOBILE END */
 
+
+/* ARGOS CLOUDFLARE FLUX MOBILE START */
+
+@media (max-width: 820px), ((max-width: 1024px) and (pointer: coarse)) {
+  .master-chat-image-result {
+    width: 100%;
+    max-height: 44dvh;
+    object-fit: contain;
+  }
+}
+
+/* ARGOS CLOUDFLARE FLUX MOBILE END */
+
