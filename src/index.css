@@ -1416,3 +1416,35 @@
 
 /* ARGOS CLOUDFLARE FLUX END */
 
+
+/* ARGOS: botao para copiar somente uma resposta do Mestre */
+.argos-copy-answer-button {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(226, 232, 240, 0.92);
+  border-radius: 999px;
+  padding: 0.28rem 0.62rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  margin-left: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.argos-copy-answer-button:hover,
+.argos-copy-answer-button:focus-visible {
+  border-color: rgba(125, 211, 252, 0.72);
+  background: rgba(14, 165, 233, 0.16);
+  color: #ffffff;
+  outline: none;
+}
+
+.argos-copy-answer-button.is-copied {
+  border-color: rgba(34, 197, 94, 0.72);
+  background: rgba(22, 163, 74, 0.18);
+  color: #dcfce7;
+}
+

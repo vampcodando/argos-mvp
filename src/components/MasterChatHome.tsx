@@ -933,6 +933,140 @@ export function MasterChatHome() {
                 ? "IA local: erro"
                 : "IA local: desligada";
 
+  // ARGOS_COPY_ANSWER_BUTTONS_EFFECT
+  useEffect(() => {
+    const selector = [
+      ".master-message-assistant",
+      ".master-message--assistant",
+      ".master-message.assistant",
+      ".chat-message-assistant",
+      ".chat-message--assistant",
+      ".chat-message.assistant",
+      ".message-assistant",
+      ".message--assistant",
+      ".message.assistant",
+      ".assistant-message",
+      "[data-role='assistant']",
+      "[data-message-role='assistant']",
+    ].join(", ");
+
+    const getRoot = () =>
+      document.querySelector<HTMLElement>(".master-chat-home") ||
+      document.querySelector<HTMLElement>(".master-chat") ||
+      document.querySelector<HTMLElement>(".chat-shell") ||
+      document.body;
+
+    const readAnswerText = (card: HTMLElement) => {
+      const clone = card.cloneNode(true) as HTMLElement;
+
+      clone
+        .querySelectorAll(
+          [
+            ".argos-copy-answer-button",
+            "button",
+            "svg",
+            "img",
+            ".master-message-meta",
+            ".message-meta",
+            ".chat-message-meta",
+            ".message-header",
+            ".chat-message-header",
+            ".model-pill",
+            ".message-role",
+            "[aria-hidden='true']",
+          ].join(", ")
+        )
+        .forEach((element) => element.remove());
+
+      return (clone.innerText || clone.textContent || "").trim();
+    };
+
+    const copyToClipboard = async (textToCopy: string) => {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textToCopy);
+        return;
+      }
+
+      const textarea = document.createElement("textarea");
+      textarea.value = textToCopy;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    };
+
+    const attachButtons = () => {
+      const root = getRoot();
+      const cards = Array.from(root.querySelectorAll<HTMLElement>(selector));
+
+      for (const card of cards) {
+        if (card.querySelector(".argos-copy-answer-button")) {
+          continue;
+        }
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "argos-copy-answer-button";
+        button.textContent = "Copiar";
+        button.setAttribute("aria-label", "Copiar somente esta resposta");
+        button.setAttribute("title", "Copiar somente esta resposta");
+
+        button.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+
+          const answerText = readAnswerText(card);
+
+          if (!answerText) {
+            button.textContent = "Vazio";
+            window.setTimeout(() => {
+              button.textContent = "Copiar";
+            }, 1200);
+            return;
+          }
+
+          try {
+            await copyToClipboard(answerText);
+            button.textContent = "Copiado";
+            button.classList.add("is-copied");
+          } catch {
+            button.textContent = "Falhou";
+          }
+
+          window.setTimeout(() => {
+            button.textContent = "Copiar";
+            button.classList.remove("is-copied");
+          }, 1400);
+        });
+
+        const header =
+          card.querySelector<HTMLElement>(".master-message-meta") ||
+          card.querySelector<HTMLElement>(".message-meta") ||
+          card.querySelector<HTMLElement>(".chat-message-meta") ||
+          card.querySelector<HTMLElement>(".message-header") ||
+          card.querySelector<HTMLElement>(".chat-message-header");
+
+        if (header) {
+          header.appendChild(button);
+        } else {
+          card.insertBefore(button, card.firstChild);
+        }
+      }
+    };
+
+    attachButtons();
+
+    const root = getRoot();
+    const observer = new MutationObserver(() => attachButtons());
+    observer.observe(root, { childList: true, subtree: true });
+
+    return () => observer.disconnect();
+  });
+
   return (
     <section className="master-chat-home" aria-label="Painel inicial do Mestre">
       <div className="master-chat-center">
