@@ -741,7 +741,7 @@ export function MasterChatHome() {
             projectKind: activeModel.projectKind || "marketing",
             dataClass: activeModel.dataClass || "creative_asset",
             model: activeModel.id,
-            prompt: promptWithContext,
+            prompt: value,
           }),
         });
 

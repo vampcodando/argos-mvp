@@ -98,6 +98,108 @@ function arrayBufferToBase64(value) {
   return btoa(binary);
 }
 
+
+const FLUX_PROMPT_LIMIT = 2048;
+
+function compactFluxPrompt(prompt) {
+  const normalized = String(prompt || "")
+    .replace(//g, "
+")
+    .replace(/[ 	]+/g, " ")
+    .replace(/
+{3,}/g, "
+
+")
+    .trim();
+
+  if (normalized.length <= FLUX_PROMPT_LIMIT) {
+    return {
+      prompt: normalized,
+      wasCompacted: false,
+      originalLength: normalized.length,
+      compactedLength: normalized.length,
+    };
+  }
+
+  const priorityLabels = [
+    "prompt:",
+    "imagem:",
+    "visual:",
+    "cena:",
+    "style:",
+    "estilo:",
+    "subject:",
+    "produto:",
+    "personagem:",
+    "lighting:",
+    "iluminacao:",
+    "camera:",
+    "composition:",
+    "composicao:",
+    "negative:",
+    "negativo:",
+    "avoid:",
+    "evitar:",
+  ];
+
+  const lines = normalized
+    .split("
+")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const priorityLines = [];
+  const normalLines = [];
+
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+
+    if (priorityLabels.some((label) => lower.includes(label))) {
+      priorityLines.push(line);
+    } else {
+      normalLines.push(line);
+    }
+  }
+
+  const ordered = [...priorityLines, ...normalLines];
+  let compacted = "";
+
+  for (const line of ordered) {
+    const candidate = compacted ? `${compacted}
+${line}` : line;
+
+    if (candidate.length > FLUX_PROMPT_LIMIT) {
+      continue;
+    }
+
+    compacted = candidate;
+  }
+
+  if (!compacted) {
+    compacted = normalized.slice(0, FLUX_PROMPT_LIMIT);
+  }
+
+  if (compacted.length < Math.min(900, FLUX_PROMPT_LIMIT) && normalized.length > compacted.length) {
+    const remaining = normalized
+      .replace(compacted, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const room = FLUX_PROMPT_LIMIT - compacted.length - 1;
+    if (room > 120) {
+      compacted = `${compacted}
+${remaining.slice(0, room)}`.trim();
+    }
+  }
+
+  return {
+    prompt: compacted.slice(0, FLUX_PROMPT_LIMIT),
+    wasCompacted: true,
+    originalLength: normalized.length,
+    compactedLength: Math.min(compacted.length, FLUX_PROMPT_LIMIT),
+  };
+}
+
 function extractImageBase64(result) {
   if (!result) {
     return null;
@@ -220,8 +322,10 @@ export async function onRequestPost({ request, env }) {
   }
 
   try {
+    const fluxPrompt = compactFluxPrompt(prompt);
+
     const result = await env.AI.run(model.id, {
-      prompt,
+      prompt: fluxPrompt.prompt,
       seed: Math.floor(Math.random() * 2147483647),
     });
 
@@ -249,9 +353,14 @@ export async function onRequestPost({ request, env }) {
       provider: "cloudflare_image",
       model: model.id,
       mode: "image_generation",
-      response: "Imagem gerada pelo Cloudflare Workers AI.",
+      response: fluxPrompt.wasCompacted
+        ? `Imagem gerada pelo Cloudflare Workers AI. Prompt tecnico compactado de ${fluxPrompt.originalLength} para ${fluxPrompt.compactedLength} caracteres por limite do FLUX.`
+        : "Imagem gerada pelo Cloudflare Workers AI.",
       imageBase64,
       mimeType: "image/jpeg",
+      promptCompacted: fluxPrompt.wasCompacted,
+      originalPromptLength: fluxPrompt.originalLength,
+      sentPromptLength: fluxPrompt.compactedLength,
     });
   } catch (error) {
     return jsonResponse(
