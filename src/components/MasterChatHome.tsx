@@ -13,6 +13,8 @@ type ChatMessage = {
   role: "master" | "user";
   text: string;
   status?: "normal" | "loading" | "error";
+  imageBase64?: string;
+  imageMimeType?: string;
 };
 
 type LocalAiStatus = "checking" | "off" | "partial" | "starting" | "online" | "stopping" | "error";
@@ -46,6 +48,24 @@ type OpenRouterStatusPayload = {
   approvedModels?: OpenRouterApprovedModel[];
 };
 
+type GeminiVisualModel = {
+  id: string;
+  label: string;
+  mode: "prompt_builder" | "image_generation";
+  role: string;
+  description: string;
+};
+
+type GeminiStatusPayload = {
+  ok: boolean;
+  enabled: boolean;
+  keyPresent: boolean;
+  defaultPromptModel: string;
+  defaultImageModel: string;
+  routingRule: string;
+  approvedModels?: GeminiVisualModel[];
+};
+
 type ChatModelOption = {
   id: string;
   name: string;
@@ -53,9 +73,10 @@ type ChatModelOption = {
   size: string;
   role: string;
   status: string;
-  provider: "local" | "openrouter";
+  provider: "local" | "openrouter" | "gemini";
   projectKind?: string;
   dataClass?: string;
+  geminiMode?: "prompt_builder" | "image_generation";
 };
 
 type SupervisorStatusPayload = {
@@ -257,6 +278,8 @@ export function MasterChatHome() {
   const [bridgeModels, setBridgeModels] = useState<BridgeModel[]>([]);
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterApprovedModel[]>([]);
   const [openRouterStatus, setOpenRouterStatus] = useState<OpenRouterStatusPayload | null>(null);
+  const [geminiModels, setGeminiModels] = useState<GeminiVisualModel[]>([]);
+  const [geminiStatus, setGeminiStatus] = useState<GeminiStatusPayload | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
@@ -266,6 +289,7 @@ export function MasterChatHome() {
   useEffect(() => {
     refreshSupervisorStatus();
     refreshOpenRouterStatus();
+    refreshGeminiStatus();
 
     return () => {
       abortRef.current?.abort();
@@ -304,7 +328,27 @@ export function MasterChatHome() {
     dataClass: "generic_prompt",
   }));
 
-  const models: ChatModelOption[] = [...localModels, ...cloudModels];
+  const geminiChatModels: ChatModelOption[] = geminiModels.map((model) => ({
+    id: model.id,
+    name: model.label,
+    endpoint:
+      model.mode === "image_generation"
+        ? "Google Gemini API -> gerador de imagem"
+        : "Google Gemini API -> construtor de prompt/JSON",
+    size: model.mode === "image_generation" ? "IMAGEM" : "PROMPT/JSON",
+    role: model.description,
+    status:
+      model.id === geminiStatus?.defaultPromptModel ||
+      model.id === geminiStatus?.defaultImageModel
+        ? "preferred"
+        : "heavy",
+    provider: "gemini",
+    projectKind: "marketing",
+    dataClass: model.mode === "image_generation" ? "creative_asset" : "generic_prompt",
+    geminiMode: model.mode,
+  }));
+
+  const models: ChatModelOption[] = [...localModels, ...cloudModels, ...geminiChatModels];
 
   const fallbackModel: ChatModelOption =
     models[0] ?? {
@@ -346,7 +390,12 @@ export function MasterChatHome() {
     setMessages(DEFAULT_MASTER_MESSAGES);
   }
 
-  function updateLoadingMessage(id: string, text: string, status: ChatMessage["status"] = "loading") {
+  function updateLoadingMessage(
+    id: string,
+    text: string,
+    status: ChatMessage["status"] = "loading",
+    extra?: Partial<ChatMessage>
+  ) {
     setMessages((current) =>
       current.map((message) =>
         message.id === id
@@ -354,6 +403,7 @@ export function MasterChatHome() {
               ...message,
               text,
               status,
+              ...extra,
             }
           : message
       )
@@ -422,6 +472,30 @@ export function MasterChatHome() {
     } catch {
       setOpenRouterStatus(null);
       setOpenRouterModels([]);
+    }
+  }
+
+  async function refreshGeminiStatus() {
+    try {
+      const response = await fetch("/api/provider/gemini", {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          accept: "application/json",
+        },
+      });
+
+      const payload = (await response.json()) as GeminiStatusPayload;
+
+      if (!response.ok || !payload.ok || !payload.enabled || !payload.keyPresent) {
+        throw new Error("Provider Gemini indisponivel.");
+      }
+
+      setGeminiStatus(payload);
+      setGeminiModels(payload.approvedModels || []);
+    } catch {
+      setGeminiStatus(null);
+      setGeminiModels([]);
     }
   }
 
@@ -554,6 +628,7 @@ export function MasterChatHome() {
 
     const promptWithContext = buildPromptWithConversationContext(value, messages);
     const isOpenRouterModel = activeModel.provider === "openrouter";
+    const isGeminiModel = activeModel.provider === "gemini";
 
     const userMessage: ChatMessage = {
       id: createId(),
@@ -571,9 +646,13 @@ export function MasterChatHome() {
       {
         id: loadingId,
         role: "master",
-        text: isOpenRouterModel
-          ? `Consultando ${activeModel.name} via OpenRouter Free...`
-          : localAiStatus === "online"
+        text: isGeminiModel
+          ? activeModel.geminiMode === "image_generation"
+            ? `Gerando imagem com ${activeModel.name}...`
+            : `Construindo prompt/JSON com ${activeModel.name}...`
+          : isOpenRouterModel
+            ? `Consultando ${activeModel.name} via OpenRouter Free...`
+            : localAiStatus === "online"
             ? `Consultando ${activeModel.name} via IA local...`
             : "IA local desligada. Ligando pelo supervisor antes de enviar...",
         status: "loading",
@@ -585,6 +664,53 @@ export function MasterChatHome() {
     setActiveLoadingId(loadingId);
 
     try {
+      if (isGeminiModel) {
+        const response = await fetch("/api/provider/gemini", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            projectKind: activeModel.projectKind || "marketing",
+            dataClass:
+              activeModel.dataClass ||
+              (activeModel.geminiMode === "image_generation"
+                ? "creative_asset"
+                : "generic_prompt"),
+            mode: activeModel.geminiMode || "prompt_builder",
+            model: activeModel.id,
+            max_tokens: 1600,
+            prompt: promptWithContext,
+          }),
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+          throw new Error(
+            payload?.reason ||
+              payload?.error?.message ||
+              "Falha ao consultar Gemini Visual."
+          );
+        }
+
+        updateLoadingMessage(
+          loadingId,
+          payload.response || "Gemini respondeu sem texto.",
+          "normal",
+          payload.imageBase64
+            ? {
+                imageBase64: payload.imageBase64,
+                imageMimeType: payload.mimeType || "image/png",
+              }
+            : undefined
+        );
+
+        return;
+      }
+
       if (isOpenRouterModel) {
         const response = await fetch("/api/provider/openrouter", {
           method: "POST",
@@ -665,13 +791,15 @@ export function MasterChatHome() {
           ? "Consulta cancelada ou tempo limite atingido."
           : error instanceof Error
             ? error.message
-            : isOpenRouterModel
-              ? "Erro desconhecido no OpenRouter Free."
-              : "Erro desconhecido na IA local.",
+            : isGeminiModel
+              ? "Erro desconhecido no Gemini Visual."
+              : isOpenRouterModel
+                ? "Erro desconhecido no OpenRouter Free."
+                : "Erro desconhecido na IA local.",
         "error"
       );
 
-      if (!cancelled && !isOpenRouterModel && localAiStatus !== "online") {
+      if (!cancelled && !isOpenRouterModel && !isGeminiModel && localAiStatus !== "online") {
         setLocalAiStatus("error");
       }
     } finally {
@@ -715,7 +843,18 @@ export function MasterChatHome() {
             {statusLabel}
           </span>
 
-          {activeModel.provider === "openrouter" ? (
+          {activeModel.provider === "gemini" ? (
+            <button
+              type="button"
+              className="local-ai-connect-button"
+              disabled
+              title="Modelo Gemini usa backend Cloudflare e nao precisa ligar Ollama local."
+            >
+              {activeModel.geminiMode === "image_generation"
+                ? "Gemini Imagem selecionado"
+                : "Gemini Prompt selecionado"}
+            </button>
+          ) : activeModel.provider === "openrouter" ? (
             <button
               type="button"
               className="local-ai-connect-button"
@@ -750,6 +889,12 @@ export function MasterChatHome() {
               ? "OpenRouter Free: online"
               : "OpenRouter Free: indisponivel"}
           </span>
+          <span>
+            {geminiStatus?.enabled && geminiStatus?.keyPresent
+              ? "Gemini Visual: online"
+              : "Gemini Visual: indisponivel"}
+          </span>
+          <span>Gemini imagem: marketing only</span>
           <span>API paga bloqueada</span>
           <span>Executor bloqueado</span>
         </div>
@@ -765,6 +910,13 @@ export function MasterChatHome() {
           >
             <span>{message.role === "master" ? "Mestre" : "Voce"}</span>
             <p>{message.text}</p>
+            {message.imageBase64 ? (
+              <img
+                className="master-chat-image-result"
+                src={`data:${message.imageMimeType || "image/png"};base64,${message.imageBase64}`}
+                alt="Imagem gerada pelo ARGOS"
+              />
+            ) : null}
           </article>
         ))}
       </div>
@@ -774,9 +926,13 @@ export function MasterChatHome() {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={
-            activeModel.provider === "openrouter"
-              ? `Mensagem para ${activeModel.name} via OpenRouter Free...`
-              : localAiStatus === "online"
+            activeModel.provider === "gemini"
+              ? activeModel.geminiMode === "image_generation"
+                ? "Descreva a imagem final para gerar no Gemini 2.5 Flash Image..."
+                : "Peça um prompt, JSON, roteiro ou comando para imagem/vídeo..."
+              : activeModel.provider === "openrouter"
+                ? `Mensagem para ${activeModel.name} via OpenRouter Free...`
+                : localAiStatus === "online"
                 ? `Mensagem para ${activeModel.name}...`
                 : localAiStatus === "partial"
                   ? "Serviço local parcial ativo. Clique em Ligar IA local para completar ou Desligar IA local para encerrar."
@@ -879,6 +1035,41 @@ export function MasterChatHome() {
                   )}
                 </div>
 
+                  {geminiChatModels.length ? (
+                    <>
+                      <div className="model-section-label">IA GEMINI / VISUAL</div>
+
+                      {geminiChatModels.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          className={
+                            model.id === selectedModel
+                              ? "model-option model-option-active"
+                              : "model-option"
+                          }
+                          onClick={() => handleModelSelect(model.id)}
+                          disabled={sending}
+                        >
+                          <span className="model-option-main">
+                            <strong>{model.name}</strong>
+                            <small>{model.endpoint}</small>
+                          </span>
+
+                          <span className="model-chip model-chip-preferred">
+                            {model.geminiMode === "image_generation" ? "USAR PARA IMAGEM" : "USAR PARA PROMPT"}
+                          </span>
+
+                          <span className={`model-chip model-chip-${model.status}`}>
+                            {model.size}
+                          </span>
+
+                          <em>{model.role}</em>
+                        </button>
+                      ))}
+                    </>
+                  ) : null}
+
                 <div className="model-clean-actions">
                   <button
                     type="button"
@@ -908,7 +1099,14 @@ export function MasterChatHome() {
 
           <div className="selected-model-pill">
             <span>
-              {activeModel.provider === "openrouter" ? "API FREE" : "LOCAL"} · {activeModel.name}
+              {activeModel.provider === "openrouter"
+                ? "API FREE"
+                : activeModel.provider === "gemini"
+                  ? activeModel.geminiMode === "image_generation"
+                    ? "GEMINI IMAGEM"
+                    : "GEMINI PROMPT"
+                  : "LOCAL"}{" "}
+              · {activeModel.name}
             </span>
             <small>{activeModel.endpoint}</small>
           </div>

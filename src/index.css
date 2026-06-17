@@ -1391,3 +1391,17 @@
 
 /* ARGOS HERO CENTURION END */
 
+
+/* ARGOS GEMINI VISUAL DUO START */
+
+.master-chat-image-result {
+  display: block;
+  width: min(100%, 720px);
+  margin-top: 0.85rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  box-shadow: 0 22px 52px rgba(0, 0, 0, 0.38);
+}
+
+/* ARGOS GEMINI VISUAL DUO END */
+
