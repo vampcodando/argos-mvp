@@ -1,0 +1,342 @@
+﻿@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  .argos-shell,
+  .argos-shell.is-collapsed {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-height: 100dvh;
+    padding-top: 54px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .icon-rail {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 120;
+    width: 100%;
+    height: 54px;
+    min-height: 54px;
+    padding: 7px 8px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--panel) 94%, var(--bg));
+    box-sizing: border-box;
+    scrollbar-width: none;
+  }
+
+  .icon-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hamburger-btn,
+  .icon-rail-btn {
+    flex: 0 0 auto;
+    width: 39px;
+    height: 39px;
+    min-width: 39px;
+    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
+  }
+
+  .rail-divider,
+  .rail-status {
+    display: none;
+  }
+
+  .rail-spacer {
+    flex: 1 0 10px;
+  }
+
+  .sidebar {
+    display: none !important;
+  }
+
+  .argos-main {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: calc(100dvh - 54px);
+    overflow: visible;
+  }
+}
+
+@media (max-width: 430px) {
+  .argos-shell,
+  .argos-shell.is-collapsed {
+    padding-top: 50px;
+  }
+
+  .icon-rail {
+    height: 50px;
+    min-height: 50px;
+    padding: 6px;
+  }
+
+  .hamburger-btn,
+  .icon-rail-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+}
+
+
+/* MOBILE TOPBAR CHAT START */
+
+@media (max-width: 768px) {
+  .chat-top-bar {
+    width: 100%;
+    min-height: auto;
+    padding: 10px 11px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    box-sizing: border-box;
+  }
+
+  .topbar-title h1 {
+    font-size: 1rem;
+    line-height: 1.15;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .topbar-title p,
+  .topbar-kicker {
+    display: none;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .topbar-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topbar-actions > * {
+    flex: 0 0 auto;
+  }
+
+  .master-chat-home {
+    width: 100%;
+    max-width: 100%;
+    min-height: calc(100dvh - 120px);
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+    overflow-x: hidden;
+    box-sizing: border-box;
+  }
+
+  .master-chat-history,
+  .master-chat-composer {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .master-chat-history {
+    max-height: calc(100dvh - 410px);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .master-chat-message {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .master-chat-message p {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .master-chat-composer {
+    position: sticky;
+    bottom: 0;
+    z-index: 80;
+    background: color-mix(in srgb, var(--bg) 90%, black);
+  }
+}
+
+@media (max-width: 430px) {
+  .chat-top-bar {
+    padding: 8px;
+  }
+
+  .master-chat-home {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .master-chat-history {
+    max-height: calc(100dvh - 390px);
+  }
+
+  .master-chat-composer textarea {
+    min-height: 6rem;
+  }
+}
+
+/* MOBILE TOPBAR CHAT END */
+
+
+/* MOBILE MODEL PICKER START */
+
+@media (max-width: 768px) {
+  .master-chat-toolbar {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .model-picker-wrap {
+    position: static;
+  }
+
+  .model-add-button,
+  .chat-send-button {
+    width: 2.75rem;
+    height: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  .selected-model-pill {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .selected-model-pill span,
+  .selected-model-pill small {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-mode-toggle {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .model-popover {
+    position: fixed;
+    left: 0.55rem;
+    right: 0.55rem;
+    bottom: 5.2rem;
+    top: auto;
+    width: auto;
+    max-width: none;
+    max-height: 72dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 200;
+    border-radius: 1.1rem;
+  }
+
+  .model-popover-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    backdrop-filter: blur(18px);
+  }
+
+  .model-list {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .model-section-label {
+    margin: 0.65rem 0 0.35rem;
+    padding: 0.4rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+  }
+
+  .model-option {
+    gap: 0.45rem;
+    padding: 0.78rem;
+  }
+
+  .model-option-main strong {
+    font-size: 0.9rem;
+  }
+
+  .model-option-main small,
+  .model-option em {
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .model-chip {
+    font-size: 0.66rem;
+    padding: 0.2rem 0.42rem;
+  }
+
+  .model-clean-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    margin-top: 0.75rem;
+  }
+
+  .model-add-future {
+    min-height: 2.45rem;
+  }
+}
+
+@media (max-width: 430px) {
+  .model-popover {
+    left: 0.35rem;
+    right: 0.35rem;
+    bottom: 4.8rem;
+    max-height: 74dvh;
+  }
+
+  .model-section-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+  }
+
+  .model-option {
+    border-radius: 0.85rem;
+  }
+}
+
+/* MOBILE MODEL PICKER END */
+

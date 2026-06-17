@@ -1,4 +1,5 @@
 @import "./theme/theme.css";
+@import "./mobile.css";
 
 .argos-shell {
   display: grid;
@@ -1345,4 +1346,3 @@
 }
 
 /* ARGOS MOBILE RESPONSIVE PATCH END */
-
