@@ -8,6 +8,8 @@
   });
 }
 
+const OPENROUTER_FREE_ROUTER = "openrouter/free";
+
 const MARKETING_PROJECTS = new Set([
   "marketing",
   "bruna",
@@ -39,6 +41,18 @@ const SENSITIVE_DATA = new Set([
   "institutional_document",
   "database_content",
 ]);
+
+function normalizeOpenRouterModel(model) {
+  const requestedModel = String(model || OPENROUTER_FREE_ROUTER).trim();
+
+  if (requestedModel === OPENROUTER_FREE_ROUTER || requestedModel.endsWith(":free")) {
+    return requestedModel;
+  }
+
+  throw new Error(
+    "ARGOS permite somente modelos gratuitos da OpenRouter: openrouter/free ou modelos com sufixo :free."
+  );
+}
 
 function evaluatePolicy(payload) {
   const projectKind = String(payload.projectKind || "");
@@ -88,12 +102,24 @@ function normalizeMessages(messages) {
 }
 
 export async function onRequestGet(context) {
+  let defaultModel = OPENROUTER_FREE_ROUTER;
+
+  try {
+    defaultModel = normalizeOpenRouterModel(
+      context.env.OPENROUTER_DEFAULT_MODEL || OPENROUTER_FREE_ROUTER
+    );
+  } catch {
+    defaultModel = OPENROUTER_FREE_ROUTER;
+  }
+
   return json({
     ok: true,
     service: "argos-openrouter-provider",
     enabled: context.env.OPENROUTER_ENABLED === "true",
     keyPresent: Boolean(context.env.OPENROUTER_API_KEY),
-    defaultModel: context.env.OPENROUTER_DEFAULT_MODEL || "openrouter/auto",
+    defaultModel,
+    freeOnly: true,
+    allowedModelRule: "Somente openrouter/free ou modelos com sufixo :free.",
     policy: {
       cloudAllowedFor: Array.from(MARKETING_PROJECTS),
       cloudBlockedFor: Array.from(SENSITIVE_PROJECTS),
@@ -148,11 +174,22 @@ export async function onRequestPost(context) {
     }, 400);
   }
 
-  const model = String(
-    payload.model ||
-    context.env.OPENROUTER_DEFAULT_MODEL ||
-    "openrouter/auto"
-  );
+  let model;
+
+  try {
+    model = normalizeOpenRouterModel(
+      payload.model ||
+      context.env.OPENROUTER_DEFAULT_MODEL ||
+      OPENROUTER_FREE_ROUTER
+    );
+  } catch (error) {
+    return json({
+      ok: false,
+      blocked: true,
+      provider: "openrouter",
+      reason: error instanceof Error ? error.message : "Modelo OpenRouter bloqueado.",
+    }, 403);
+  }
 
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -185,6 +222,7 @@ export async function onRequestPost(context) {
       ok: false,
       provider: "openrouter",
       model,
+      freeOnly: true,
       error: data,
     }, response.status);
   }
@@ -193,6 +231,7 @@ export async function onRequestPost(context) {
     ok: true,
     provider: "openrouter",
     model,
+    freeOnly: true,
     response: data?.choices?.[0]?.message?.content || "",
     raw: data,
   });
