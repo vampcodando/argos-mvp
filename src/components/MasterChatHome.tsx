@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_LOCAL_MODEL, LOCAL_OLLAMA_MODELS } from "../data/localModels";
+import argosHero from "../assets/argos-centurion.png";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
@@ -701,9 +702,13 @@ export function MasterChatHome() {
   return (
     <section className="master-chat-home" aria-label="Painel inicial do Mestre">
       <div className="master-chat-center">
-        <div className="master-orb">A</div>
-        <h2>ARGOS</h2>
-        <p>Project Master local. Comando, contexto, validacao e auditoria.</p>
+        <div className="master-hero">
+          <img src={argosHero} alt="Centuriao ARGOS" className="master-hero-image" />
+          <h2 className="master-hero-title">ARGOS</h2>
+          <p className="master-hero-subtitle">
+            Project Master local. Comando, contexto, validacao e auditoria.
+          </p>
+        </div>
 
         <div className="master-chat-flags">
           <span className={`local-ai-status local-ai-status-${localAiStatus}`}>
