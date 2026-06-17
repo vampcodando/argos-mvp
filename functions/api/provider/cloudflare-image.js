@@ -76,13 +76,17 @@ function evaluatePolicy(projectKind, dataClass) {
   return null;
 }
 
-function bytesToBase64(value) {
+function arrayBufferToBase64(value) {
   const bytes =
     value instanceof Uint8Array
       ? value
       : value instanceof ArrayBuffer
         ? new Uint8Array(value)
-        : new Uint8Array(value || []);
+        : null;
+
+  if (!bytes) {
+    return null;
+  }
 
   let binary = "";
   const chunk = 0x8000;
@@ -92,6 +96,44 @@ function bytesToBase64(value) {
   }
 
   return btoa(binary);
+}
+
+function extractImageBase64(result) {
+  if (!result) {
+    return null;
+  }
+
+  if (typeof result === "string") {
+    return result.startsWith("data:")
+      ? result.split(",").pop() || null
+      : result;
+  }
+
+  if (result instanceof Uint8Array || result instanceof ArrayBuffer) {
+    return arrayBufferToBase64(result);
+  }
+
+  if (typeof result.image === "string") {
+    return result.image.startsWith("data:")
+      ? result.image.split(",").pop() || null
+      : result.image;
+  }
+
+  if (typeof result.dataURI === "string") {
+    return result.dataURI.split(",").pop() || null;
+  }
+
+  if (typeof result.dataUri === "string") {
+    return result.dataUri.split(",").pop() || null;
+  }
+
+  if (Array.isArray(result.images) && typeof result.images[0] === "string") {
+    return result.images[0].startsWith("data:")
+      ? result.images[0].split(",").pop() || null
+      : result.images[0];
+  }
+
+  return null;
 }
 
 export async function onRequestGet({ env }) {
@@ -178,19 +220,25 @@ export async function onRequestPost({ request, env }) {
   }
 
   try {
-    const imageResult = await env.AI.run(model.id, {
+    const result = await env.AI.run(model.id, {
       prompt,
+      seed: Math.floor(Math.random() * 2147483647),
     });
 
-    const base64 = bytesToBase64(imageResult);
+    const imageBase64 = extractImageBase64(result);
 
-    if (!base64) {
+    if (!imageBase64) {
       return jsonResponse(
         {
           ok: false,
           provider: "cloudflare_image",
           model: model.id,
-          reason: "Workers AI respondeu sem imagem.",
+          reason:
+            "Workers AI respondeu sem campo image. O retorno foi recebido, mas nao veio no formato esperado.",
+          debugShape:
+            result && typeof result === "object"
+              ? Object.keys(result)
+              : typeof result,
         },
         502
       );
@@ -202,7 +250,7 @@ export async function onRequestPost({ request, env }) {
       model: model.id,
       mode: "image_generation",
       response: "Imagem gerada pelo Cloudflare Workers AI.",
-      imageBase64: base64,
+      imageBase64,
       mimeType: "image/jpeg",
     });
   } catch (error) {
