@@ -3,6 +3,7 @@ import { DEFAULT_LOCAL_MODEL, LOCAL_OLLAMA_MODELS } from "../data/localModels";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
+const MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
 
 type ChatMessage = {
   id: string;
@@ -43,6 +44,100 @@ function hasAnyLocalService(payload: SupervisorStatusPayload) {
   return Boolean(payload.ollama?.ok || payload.bridge?.ok || payload.localAiReady);
 }
 
+
+const DEFAULT_MASTER_MESSAGES: ChatMessage[] = [
+  {
+    id: "welcome",
+    role: "master",
+    text:
+      "ARGOS pronto. O supervisor local verifica se a IA ja esta ativa e permite ligar ou desligar tudo sob comando do usuario.",
+  },
+];
+
+function isStoredChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const message = value as Partial<ChatMessage>;
+
+  return (
+    typeof message.id === "string" &&
+    (message.role === "master" || message.role === "user") &&
+    typeof message.text === "string"
+  );
+}
+
+function loadStoredMessages(): ChatMessage[] {
+  if (typeof window === "undefined") {
+    return DEFAULT_MASTER_MESSAGES;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(MASTER_CHAT_STORAGE_KEY);
+
+    if (!raw) {
+      return DEFAULT_MASTER_MESSAGES;
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (!Array.isArray(parsed)) {
+      return DEFAULT_MASTER_MESSAGES;
+    }
+
+    const messages: ChatMessage[] = parsed
+      .filter(isStoredChatMessage)
+      .map((message): ChatMessage => ({
+        ...message,
+        status: message.status === "error" ? "error" : "normal",
+      }))
+      .slice(-80);
+
+    return messages.length ? messages : DEFAULT_MASTER_MESSAGES;
+  } catch {
+    return DEFAULT_MASTER_MESSAGES;
+  }
+}
+
+function saveStoredMessages(messages: ChatMessage[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const safeMessages = messages
+      .filter((message) => message.status !== "loading")
+      .slice(-80);
+
+    window.localStorage.setItem(MASTER_CHAT_STORAGE_KEY, JSON.stringify(safeMessages));
+  } catch {
+    // armazenamento local indisponivel ou cheio; nao quebra o chat
+  }
+}
+
+function buildPromptWithConversationContext(currentPrompt: string, history: ChatMessage[]) {
+  const recentHistory = history
+    .filter((message) => message.id !== "welcome" && message.status !== "loading")
+    .slice(-16)
+    .map((message) => (message.role === "user" ? "Usuario: " : "Mestre: ") + message.text)
+    .join("\n");
+
+  if (!recentHistory) {
+    return currentPrompt;
+  }
+
+  return [
+    "Contexto recente da conversa local do ARGOS:",
+    recentHistory,
+    "",
+    "Mensagem atual do usuario:",
+    currentPrompt,
+    "",
+    "Responda considerando o contexto recente. Nao diga que executou comandos se nao executou."
+  ].join("\n");
+}
+
 export function MasterChatHome() {
   const [selectedModel, setSelectedModel] = useState(DEFAULT_LOCAL_MODEL.id);
   const [modelsOpen, setModelsOpen] = useState(false);
@@ -53,14 +148,7 @@ export function MasterChatHome() {
   const [bridgeModels, setBridgeModels] = useState<BridgeModel[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "master",
-      text:
-        "ARGOS pronto. O supervisor local verifica se a IA ja esta ativa e permite ligar ou desligar tudo sob comando do usuario.",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages());
 
   useEffect(() => {
     refreshSupervisorStatus();
@@ -69,6 +157,10 @@ export function MasterChatHome() {
       abortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    saveStoredMessages(messages);
+  }, [messages]);
 
   const models = bridgeModels.length
     ? bridgeModels.map((model) => ({
@@ -311,7 +403,7 @@ export function MasterChatHome() {
         signal: controller.signal,
         body: JSON.stringify({
           model: selectedModel,
-          prompt: value,
+          prompt: buildPromptWithConversationContext(value, messages),
         }),
       });
 
