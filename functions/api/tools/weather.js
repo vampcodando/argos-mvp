@@ -12,6 +12,47 @@ function label(code) {
   return CODES[code] || `codigo meteorologico ${code}`;
 }
 
+function normalize(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function scorePlace(place, city, state, country) {
+  const wantedCity = normalize(city);
+  const wantedState = normalize(state);
+  const wantedCountry = normalize(country);
+
+  let score = 0;
+
+  if (normalize(place.name) === wantedCity) score += 50;
+  if (normalize(place.admin1).includes(wantedState) || wantedState.includes(normalize(place.admin1))) score += 30;
+  if (normalize(place.country).includes(wantedCountry) || wantedCountry.includes(normalize(place.country))) score += 20;
+
+  return score;
+}
+
+async function findPlace(city, state, country) {
+  const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
+  geoUrl.searchParams.set("name", city);
+  geoUrl.searchParams.set("count", "10");
+  geoUrl.searchParams.set("language", "pt");
+  geoUrl.searchParams.set("format", "json");
+
+  const geo = await fetchJson(geoUrl.toString());
+  const results = Array.isArray(geo.results) ? geo.results : [];
+
+  if (!results.length) {
+    return null;
+  }
+
+  return results
+    .map((place) => ({ place, score: scorePlace(place, city, state, country) }))
+    .sort((a, b) => b.score - a.score)[0].place;
+}
+
 export async function onRequestGet({ request }) {
   const url = new URL(request.url);
   const gate = policyGate(param(url, "context", "weather"));
@@ -22,15 +63,17 @@ export async function onRequestGet({ request }) {
   const country = param(url, "country", "Brasil");
 
   try {
-    const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
-    geoUrl.searchParams.set("name", `${city}, ${state}, ${country}`);
-    geoUrl.searchParams.set("count", "1");
-    geoUrl.searchParams.set("language", "pt");
-    geoUrl.searchParams.set("format", "json");
+    const place = await findPlace(city, state, country);
 
-    const geo = await fetchJson(geoUrl.toString());
-    const place = geo.results?.[0];
-    if (!place) return jsonResponse({ ok: false, tool: "weather", reason: "Cidade nao encontrada." }, 404);
+    if (!place) {
+      return jsonResponse({
+        ok: false,
+        tool: "weather",
+        reason: "Cidade nao encontrada.",
+        hint: "Tente informar apenas city=Esteio e state=Rio Grande do Sul.",
+        query: { city, state, country }
+      }, 404);
+    }
 
     const forecastUrl = new URL("https://api.open-meteo.com/v1/forecast");
     forecastUrl.searchParams.set("latitude", String(place.latitude));
