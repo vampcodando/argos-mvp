@@ -1448,3 +1448,69 @@
   color: #dcfce7;
 }
 
+
+/* ARGOS: correção desktop do seletor/lista de modelos.
+   Mantém o painel dentro da viewport e permite rolar a lista inteira,
+   incluindo os modelos do topo. */
+@media (min-width: 769px) {
+  .master-model-selector,
+  .master-model-menu,
+  .master-model-popover,
+  .master-model-panel,
+  .model-selector,
+  .model-selector-panel,
+  .model-picker,
+  .model-picker-panel,
+  .models-menu,
+  .models-panel,
+  .model-list-panel,
+  .model-drawer,
+  .model-drawer-panel,
+  .provider-models,
+  .provider-models-panel {
+    max-height: calc(100vh - 7.5rem) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain !important;
+    scrollbar-gutter: stable !important;
+  }
+
+  .master-model-selector,
+  .master-model-menu,
+  .master-model-popover,
+  .model-selector-panel,
+  .model-picker-panel,
+  .models-panel,
+  .model-list-panel {
+    top: clamp(4.75rem, 8vh, 6.5rem) !important;
+    bottom: auto !important;
+  }
+
+  .master-chat-home,
+  .master-chat,
+  .master-chat-shell,
+  .master-workspace,
+  .workspace-main,
+  .app-workspace {
+    min-height: 0 !important;
+  }
+
+  .master-model-selector::-webkit-scrollbar,
+  .master-model-menu::-webkit-scrollbar,
+  .master-model-popover::-webkit-scrollbar,
+  .master-model-panel::-webkit-scrollbar,
+  .model-selector::-webkit-scrollbar,
+  .model-selector-panel::-webkit-scrollbar,
+  .model-picker::-webkit-scrollbar,
+  .model-picker-panel::-webkit-scrollbar,
+  .models-menu::-webkit-scrollbar,
+  .models-panel::-webkit-scrollbar,
+  .model-list-panel::-webkit-scrollbar,
+  .model-drawer::-webkit-scrollbar,
+  .model-drawer-panel::-webkit-scrollbar,
+  .provider-models::-webkit-scrollbar,
+  .provider-models-panel::-webkit-scrollbar {
+    width: 0.65rem;
+  }
+}
+
