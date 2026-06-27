@@ -4,6 +4,7 @@ import argosHero from "../assets/argos-centurion.png";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
+const HERMES_LOCAL_MODEL_ID = "local-hermes-agent";
 const LEGACY_MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
 const MASTER_CHAT_STORAGE_PREFIX = "argos.masterChat.messagesByModel.v1";
 const MASTER_CHAT_SELECTED_MODEL_KEY = "argos.masterChat.selectedModel.v1";
@@ -588,7 +589,7 @@ export function MasterChatHome() {
     saveStoredMessages(selectedModel, messages);
   }, [messages, selectedModel]);
 
-  const localModels: ChatModelOption[] = bridgeModels.length
+  const ollamaModels: ChatModelOption[] = bridgeModels.length
     ? bridgeModels.map((model) => ({
         id: model.id,
         name: model.name,
@@ -602,6 +603,18 @@ export function MasterChatHome() {
         ...model,
         provider: "local",
       }));
+
+  const hermesLocalModel: ChatModelOption = {
+    id: HERMES_LOCAL_MODEL_ID,
+    name: "Hermes Agent",
+    endpoint: "Bridge 8787 -> Hermes headless -> Ollama local",
+    size: "AGENTE LOCAL",
+    role: "Agente local headless controlado pelo ARGOS. Nesta fase, nao executa comandos diretamente; responde e propoe acoes para a politica de permissao.",
+    status: "preferred",
+    provider: "local",
+  };
+
+  const localModels: ChatModelOption[] = [...ollamaModels, hermesLocalModel];
 
   const cloudModels: ChatModelOption[] = openRouterModels.map((model) => ({
     id: model.id,
@@ -958,6 +971,7 @@ export function MasterChatHome() {
     const isOpenRouterModel = activeModel.provider === "openrouter";
     const isGeminiModel = activeModel.provider === "gemini";
     const isCloudflareImageModel = activeModel.provider === "cloudflare_image";
+    const isHermesModel = activeModel.id === HERMES_LOCAL_MODEL_ID;
 
     const userMessage: ChatMessage = {
       id: createId(),
@@ -983,6 +997,8 @@ export function MasterChatHome() {
               : `Construindo prompt/JSON com ${activeModel.name}...`
             : isOpenRouterModel
               ? `Consultando ${activeModel.name} via OpenRouter Free...`
+            : isHermesModel
+              ? `Consultando ${activeModel.name} via Hermes local...`
             : localAiStatus === "online"
             ? `Consultando ${activeModel.name} via IA local...`
             : "IA local desligada. Ligando pelo supervisor antes de enviar...",
@@ -1125,7 +1141,12 @@ export function MasterChatHome() {
 
       if (localAiStatus !== "online") {
         await startLocalAi(controller.signal);
-        updateLoadingMessage(loadingId, `Consultando ${activeModel.name} via IA local...`);
+        updateLoadingMessage(
+          loadingId,
+          isHermesModel
+            ? `Consultando ${activeModel.name} via Hermes local...`
+            : `Consultando ${activeModel.name} via IA local...`
+        );
       }
 
       const toolContext = await resolveToolContextForPrompt(value, controller.signal);
@@ -1150,17 +1171,22 @@ export function MasterChatHome() {
         );
       }
 
-      const response = await fetch(`${LOCAL_AI_BRIDGE_URL}/local-ai/chat`, {
+      const localEndpoint = isHermesModel
+        ? `${LOCAL_AI_BRIDGE_URL}/local-ai/hermes/chat`
+        : `${LOCAL_AI_BRIDGE_URL}/local-ai/chat`;
+
+      const localBody = isHermesModel
+        ? { prompt: localPromptForModel }
+        : { model: activeModel.id, prompt: localPromptForModel };
+
+      const response = await fetch(localEndpoint, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           accept: "application/json",
         },
         signal: controller.signal,
-        body: JSON.stringify({
-          model: activeModel.id,
-          prompt: localPromptForModel,
-        }),
+        body: JSON.stringify(localBody),
       });
 
       const payload = await response.json();
@@ -1591,6 +1617,8 @@ export function MasterChatHome() {
                   : "Peça um prompt, JSON, roteiro ou comando para imagem/vídeo..."
                 : activeModel.provider === "openrouter"
                   ? `Mensagem para ${activeModel.name} via OpenRouter Free...`
+                : activeModel.id === HERMES_LOCAL_MODEL_ID
+                  ? "Mensagem para Hermes Agent local..."
                 : localAiStatus === "online"
                 ? `Mensagem para ${activeModel.name}...`
                 : localAiStatus === "partial"
@@ -1619,7 +1647,7 @@ export function MasterChatHome() {
               <div className="model-popover">
                 <div className="model-popover-head">
                   <strong>Modelos permitidos</strong>
-                  <small>Local Ollama + OpenRouter Free aprovado</small>
+                  <small>Local Ollama/Hermes + OpenRouter Free aprovado</small>
                 </div>
 
                 <div className="model-list">
