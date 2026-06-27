@@ -1069,6 +1069,12 @@ export function MasterChatHome() {
 
   // ARGOS_MODEL_MENU_REAL_SCROLL_FIX
   useEffect(() => {
+    const DESKTOP_MIN_WIDTH = 769;
+    const TOP_SAFE_MARGIN = 84;
+    const BOTTOM_SAFE_MARGIN = 112;
+
+    const isDesktop = () => window.innerWidth >= DESKTOP_MIN_WIDTH;
+
     const findModelMenuPanel = () => {
       const candidates = Array.from(
         document.querySelectorAll<HTMLElement>("div, aside, section")
@@ -1085,8 +1091,8 @@ export function MasterChatHome() {
           const rect = element.getBoundingClientRect();
           return (
             element !== document.body &&
-            rect.width >= 240 &&
-            rect.width <= 620 &&
+            rect.width >= 260 &&
+            rect.width <= 680 &&
             rect.height >= 240
           );
         });
@@ -1108,11 +1114,43 @@ export function MasterChatHome() {
       }
 
       panel.classList.add("argos-model-menu-real-scroll-fix");
-      panel.style.maxHeight = "calc(100dvh - 1.5rem)";
+
+      if (!isDesktop()) {
+        panel.style.position = "";
+        panel.style.left = "";
+        panel.style.right = "";
+        panel.style.top = "";
+        panel.style.bottom = "";
+        panel.style.width = "";
+        panel.style.maxHeight = "";
+        panel.style.overflowY = "";
+        return;
+      }
+
+      const currentRect = panel.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+      const targetTop = TOP_SAFE_MARGIN;
+      const targetBottom = BOTTOM_SAFE_MARGIN;
+      const targetHeight = Math.max(320, viewportHeight - targetTop - targetBottom);
+      const targetWidth = Math.min(Math.max(currentRect.width, 360), 520);
+      const targetLeft = Math.min(
+        Math.max(currentRect.left, 8),
+        Math.max(8, viewportWidth - targetWidth - 24)
+      );
+
+      panel.style.position = "fixed";
+      panel.style.left = `${targetLeft}px`;
+      panel.style.right = "auto";
+      panel.style.top = `${targetTop}px`;
+      panel.style.bottom = "auto";
+      panel.style.width = `${targetWidth}px`;
+      panel.style.maxHeight = `${targetHeight}px`;
       panel.style.overflowY = "auto";
       panel.style.overflowX = "hidden";
       panel.style.scrollbarGutter = "stable both-edges";
       panel.style.overscrollBehavior = "contain";
+      panel.style.zIndex = "80";
 
       if (panel.dataset.argosModelMenuScrollFixed !== "1") {
         panel.dataset.argosModelMenuScrollFixed = "1";
@@ -1122,9 +1160,9 @@ export function MasterChatHome() {
 
     const scheduleFix = () => {
       fixModelMenu();
-      window.setTimeout(fixModelMenu, 50);
-      window.setTimeout(fixModelMenu, 180);
-      window.setTimeout(fixModelMenu, 400);
+      window.setTimeout(fixModelMenu, 30);
+      window.setTimeout(fixModelMenu, 120);
+      window.setTimeout(fixModelMenu, 280);
     };
 
     scheduleFix();
@@ -1134,11 +1172,13 @@ export function MasterChatHome() {
 
     window.addEventListener("click", scheduleFix, true);
     window.addEventListener("resize", scheduleFix);
+    window.addEventListener("scroll", scheduleFix, true);
 
     return () => {
       observer.disconnect();
       window.removeEventListener("click", scheduleFix, true);
       window.removeEventListener("resize", scheduleFix);
+      window.removeEventListener("scroll", scheduleFix, true);
     };
   }, []);
 

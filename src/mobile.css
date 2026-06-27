@@ -413,10 +413,25 @@
 }
 
 
-/* ARGOS: correção real do menu aberto pelo botão +.
-   Este CSS só estiliza o painel detectado pelo efeito no componente. */
+.argos-model-menu-real-scroll-fix::-webkit-scrollbar {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.argos-model-menu-real-scroll-fix::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.68) !important;
+  border-radius: 999px !important;
+}
+
+.argos-model-menu-real-scroll-fix::-webkit-scrollbar-thumb {
+  background: rgba(125, 211, 252, 0.64) !important;
+  border-radius: 999px !important;
+}
+
+
+/* ARGOS: menu do botão + com rolagem total no desktop.
+   O componente posiciona o painel abaixo do cabeçalho e acima do composer. */
 .argos-model-menu-real-scroll-fix {
-  max-height: calc(100dvh - 1.5rem) !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
   overscroll-behavior: contain !important;
@@ -435,7 +450,13 @@
 }
 
 .argos-model-menu-real-scroll-fix::-webkit-scrollbar-thumb {
-  background: rgba(125, 211, 252, 0.64) !important;
+  background: rgba(125, 211, 252, 0.7) !important;
   border-radius: 999px !important;
+}
+
+@media (min-width: 769px) {
+  .argos-model-menu-real-scroll-fix {
+    min-height: 320px !important;
+  }
 }
 
