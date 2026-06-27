@@ -309,9 +309,18 @@ function buildHermesPrompt(userPrompt) {
     "Contexto oficial do ARGOS:",
     "Voce e o Hermes Agent rodando localmente como agente auxiliar do ARGOS.",
     "ARGOS e o orquestrador mestre, painel e camada de governanca.",
-    "Responda em portugues do Brasil.",
+    "Responda sempre em portugues do Brasil.",
+    "",
+    "Regra obrigatoria de saida:",
+    "Nunca devolva JSON cru para o usuario.",
+    "Nunca responda apenas com objetos como {name, arguments}.",
+    "Nunca use tool-call JSON para conversa normal.",
+    "Se precisar esclarecer algo, faca a pergunta diretamente em texto natural.",
+    "Se o usuario pedir apresentacao, saudacao, explicacao, resumo ou opiniao tecnica, responda diretamente em texto natural.",
+    "",
+    "Regras de seguranca:",
     "Nao afirme que executou comandos, escreveu arquivos, fez deploy ou usou API externa se isso nao aconteceu.",
-    "Para comandos e ferramentas, quando necessario, proponha a acao de forma estruturada; o ARGOS classificara risco e executara apenas o que for permitido.",
+    "Para comandos e ferramentas, quando necessario, descreva a acao proposta em texto natural; o ARGOS classificara risco e executara apenas o que for permitido.",
     "",
     "Politica de autonomia do ARGOS:",
     "READ_ONLY_AUTO: consultas, leitura, diagnosticos e listagens podem ser automaticos.",
@@ -328,6 +337,37 @@ function cleanHermesOutput(value) {
   return String(value || "")
     .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
     .trim();
+}
+
+function normalizeHermesOutput(value) {
+  const output = cleanHermesOutput(value);
+
+  if (!output) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(output);
+
+    if (parsed && typeof parsed === "object" && typeof parsed.name === "string") {
+      const args = parsed.arguments && typeof parsed.arguments === "object"
+        ? parsed.arguments
+        : {};
+
+      if (parsed.name === "clarify" && typeof args.question === "string") {
+        return args.question.trim();
+      }
+
+      return [
+        `O Hermes propos a acao "${parsed.name}", mas nesta fase o ARGOS nao executa ferramentas diretamente pelo chat.`,
+        "Descreva o que deseja fazer em linguagem natural para que o ARGOS classifique o risco e conduza a proxima etapa.",
+      ].join("\n\n");
+    }
+  } catch {
+    // saida normal em texto; segue sem conversao
+  }
+
+  return output;
 }
 
 async function handleHermesChat(request, response, origin) {
@@ -363,7 +403,8 @@ async function handleHermesChat(request, response, origin) {
       }
     );
 
-    const stdout = cleanHermesOutput(result.stdout);
+    const rawStdout = cleanHermesOutput(result.stdout);
+    const stdout = normalizeHermesOutput(rawStdout);
     const stderr = cleanHermesOutput(result.stderr);
 
     return sendJson(response, 200, {
