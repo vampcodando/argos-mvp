@@ -413,14 +413,9 @@
 }
 
 
-/* ARGOS: correção desktop do seletor/lista de modelos.
-   Mantém o painel dentro da viewport e permite rolar a lista inteira,
-   incluindo os modelos do topo. */
+/* ARGOS: aumento da capacidade de rolagem do seletor de modelos.
+   A intenção é só aumentar a área rolável e manter barra visível no desktop. */
 @media (min-width: 769px) {
-  .master-model-selector,
-  .master-model-menu,
-  .master-model-popover,
-  .master-model-panel,
   .model-selector,
   .model-selector-panel,
   .model-picker,
@@ -428,41 +423,19 @@
   .models-menu,
   .models-panel,
   .model-list-panel,
-  .model-drawer,
-  .model-drawer-panel,
   .provider-models,
-  .provider-models-panel {
-    max-height: calc(100vh - 7.5rem) !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    overscroll-behavior: contain !important;
-    scrollbar-gutter: stable !important;
-  }
-
+  .provider-models-panel,
   .master-model-selector,
   .master-model-menu,
   .master-model-popover,
-  .model-selector-panel,
-  .model-picker-panel,
-  .models-panel,
-  .model-list-panel {
-    top: clamp(4.75rem, 8vh, 6.5rem) !important;
-    bottom: auto !important;
+  .master-model-panel {
+    max-height: calc(100dvh - 1.25rem) !important;
+    overflow-y: scroll !important;
+    overflow-x: hidden !important;
+    scrollbar-width: auto !important;
+    scrollbar-gutter: stable both-edges !important;
   }
 
-  .master-chat-home,
-  .master-chat,
-  .master-chat-shell,
-  .master-workspace,
-  .workspace-main,
-  .app-workspace {
-    min-height: 0 !important;
-  }
-
-  .master-model-selector::-webkit-scrollbar,
-  .master-model-menu::-webkit-scrollbar,
-  .master-model-popover::-webkit-scrollbar,
-  .master-model-panel::-webkit-scrollbar,
   .model-selector::-webkit-scrollbar,
   .model-selector-panel::-webkit-scrollbar,
   .model-picker::-webkit-scrollbar,
@@ -470,11 +443,31 @@
   .models-menu::-webkit-scrollbar,
   .models-panel::-webkit-scrollbar,
   .model-list-panel::-webkit-scrollbar,
-  .model-drawer::-webkit-scrollbar,
-  .model-drawer-panel::-webkit-scrollbar,
   .provider-models::-webkit-scrollbar,
-  .provider-models-panel::-webkit-scrollbar {
-    width: 0.65rem;
+  .provider-models-panel::-webkit-scrollbar,
+  .master-model-selector::-webkit-scrollbar,
+  .master-model-menu::-webkit-scrollbar,
+  .master-model-popover::-webkit-scrollbar,
+  .master-model-panel::-webkit-scrollbar {
+    width: 12px !important;
+    height: 12px !important;
+  }
+
+  .model-selector::-webkit-scrollbar-thumb,
+  .model-selector-panel::-webkit-scrollbar-thumb,
+  .model-picker::-webkit-scrollbar-thumb,
+  .model-picker-panel::-webkit-scrollbar-thumb,
+  .models-menu::-webkit-scrollbar-thumb,
+  .models-panel::-webkit-scrollbar-thumb,
+  .model-list-panel::-webkit-scrollbar-thumb,
+  .provider-models::-webkit-scrollbar-thumb,
+  .provider-models-panel::-webkit-scrollbar-thumb,
+  .master-model-selector::-webkit-scrollbar-thumb,
+  .master-model-menu::-webkit-scrollbar-thumb,
+  .master-model-popover::-webkit-scrollbar-thumb,
+  .master-model-panel::-webkit-scrollbar-thumb {
+    background: rgba(125, 211, 252, 0.55) !important;
+    border-radius: 999px !important;
   }
 }
 
