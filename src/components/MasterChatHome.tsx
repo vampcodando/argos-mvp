@@ -334,6 +334,123 @@ function buildPromptWithToolContext(promptWithContext: string, toolContext: Argo
   ].join("\n");
 }
 
+function isPlainWeatherQuestion(prompt: string) {
+  const text = prompt
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const hasWeatherIntent =
+    text.includes("temperatura") ||
+    text.includes("tempo") ||
+    text.includes("clima") ||
+    text.includes("sensacao termica");
+
+  const asksAnalysis =
+    text.includes("analise") ||
+    text.includes("compare") ||
+    text.includes("planeje") ||
+    text.includes("explique") ||
+    text.includes("previsao da semana") ||
+    text.includes("proximos dias");
+
+  return hasWeatherIntent && !asksAnalysis && text.length <= 180;
+}
+
+function buildDirectToolResponse(
+  currentPrompt: string,
+  toolContext: ArgosToolContext
+): string | null {
+  const result = toolContext.result as {
+    ok?: boolean;
+    tool?: string;
+    location?: {
+      name?: string;
+      state?: string;
+      country?: string;
+    };
+    current?: {
+      temperatureC?: number;
+      apparentTemperatureC?: number;
+      humidityPercent?: number;
+      windKmh?: number;
+      condition?: string;
+      time?: string;
+    };
+    repo?: {
+      fullName?: string;
+      description?: string | null;
+      language?: string | null;
+      defaultBranch?: string | null;
+      stars?: number;
+      forks?: number;
+      openIssues?: number;
+      private?: boolean;
+      updatedAt?: string;
+      pushedAt?: string;
+    };
+    source?: string;
+    reason?: string;
+  };
+
+  if (toolContext.tool === "weather" && result?.ok && isPlainWeatherQuestion(currentPrompt)) {
+    const location = result.location;
+    const current = result.current;
+
+    if (!current) {
+      return null;
+    }
+
+    const place = [location?.name, location?.state, location?.country]
+      .filter(Boolean)
+      .join(", ");
+
+    const parts = [
+      `Agora em ${place || "local consultado"} está ${current.temperatureC}°C`,
+    ];
+
+    if (current.condition) {
+      parts[0] += `, com ${current.condition}.`;
+    } else {
+      parts[0] += ".";
+    }
+
+    if (typeof current.apparentTemperatureC === "number") {
+      parts.push(`Sensação térmica: ${current.apparentTemperatureC}°C.`);
+    }
+
+    if (typeof current.humidityPercent === "number") {
+      parts.push(`Umidade: ${current.humidityPercent}%.`);
+    }
+
+    if (typeof current.windKmh === "number") {
+      parts.push(`Vento: ${current.windKmh} km/h.`);
+    }
+
+    parts.push(`Fonte: ${result.source || "weather"}.`);
+
+    return parts.join(" ");
+  }
+
+  if (toolContext.tool === "github-repo" && result?.ok && result.repo) {
+    const repo = result.repo;
+
+    return [
+      `Repositório ${repo.fullName}: ${repo.description || "sem descrição"}.`,
+      `Linguagem principal: ${repo.language || "não informada"}.`,
+      `Branch padrão: ${repo.defaultBranch || "não informada"}.`,
+      `Estrelas: ${repo.stars ?? 0}. Forks: ${repo.forks ?? 0}. Issues abertas: ${repo.openIssues ?? 0}.`,
+      `Privado: ${repo.private ? "sim" : "não"}.`,
+      repo.pushedAt ? `Último push: ${repo.pushedAt}.` : "",
+      `Fonte: ${result.source || "GitHub"}.`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return null;
+}
+
 async function resolveToolContextForPrompt(
   currentPrompt: string,
   signal: AbortSignal
@@ -974,6 +1091,16 @@ export function MasterChatHome() {
       }
 
       const toolContext = await resolveToolContextForPrompt(value, controller.signal);
+
+      if (toolContext) {
+        const directToolResponse = buildDirectToolResponse(value, toolContext);
+
+        if (directToolResponse) {
+          updateLoadingMessage(loadingId, directToolResponse, "normal");
+          return;
+        }
+      }
+
       const localPromptForModel = toolContext
         ? buildPromptWithToolContext(promptWithContext, toolContext)
         : promptWithContext;
