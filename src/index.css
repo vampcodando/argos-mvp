@@ -1449,61 +1449,29 @@
 }
 
 
-/* ARGOS: aumento da capacidade de rolagem do seletor de modelos.
-   A intenção é só aumentar a área rolável e manter barra visível no desktop. */
-@media (min-width: 769px) {
-  .model-selector,
-  .model-selector-panel,
-  .model-picker,
-  .model-picker-panel,
-  .models-menu,
-  .models-panel,
-  .model-list-panel,
-  .provider-models,
-  .provider-models-panel,
-  .master-model-selector,
-  .master-model-menu,
-  .master-model-popover,
-  .master-model-panel {
-    max-height: calc(100dvh - 1.25rem) !important;
-    overflow-y: scroll !important;
-    overflow-x: hidden !important;
-    scrollbar-width: auto !important;
-    scrollbar-gutter: stable both-edges !important;
-  }
+/* ARGOS: correção real do menu aberto pelo botão +.
+   Este CSS só estiliza o painel detectado pelo efeito no componente. */
+.argos-model-menu-real-scroll-fix {
+  max-height: calc(100dvh - 1.5rem) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+  scrollbar-width: auto !important;
+  scrollbar-gutter: stable both-edges !important;
+}
 
-  .model-selector::-webkit-scrollbar,
-  .model-selector-panel::-webkit-scrollbar,
-  .model-picker::-webkit-scrollbar,
-  .model-picker-panel::-webkit-scrollbar,
-  .models-menu::-webkit-scrollbar,
-  .models-panel::-webkit-scrollbar,
-  .model-list-panel::-webkit-scrollbar,
-  .provider-models::-webkit-scrollbar,
-  .provider-models-panel::-webkit-scrollbar,
-  .master-model-selector::-webkit-scrollbar,
-  .master-model-menu::-webkit-scrollbar,
-  .master-model-popover::-webkit-scrollbar,
-  .master-model-panel::-webkit-scrollbar {
-    width: 12px !important;
-    height: 12px !important;
-  }
+.argos-model-menu-real-scroll-fix::-webkit-scrollbar {
+  width: 12px !important;
+  height: 12px !important;
+}
 
-  .model-selector::-webkit-scrollbar-thumb,
-  .model-selector-panel::-webkit-scrollbar-thumb,
-  .model-picker::-webkit-scrollbar-thumb,
-  .model-picker-panel::-webkit-scrollbar-thumb,
-  .models-menu::-webkit-scrollbar-thumb,
-  .models-panel::-webkit-scrollbar-thumb,
-  .model-list-panel::-webkit-scrollbar-thumb,
-  .provider-models::-webkit-scrollbar-thumb,
-  .provider-models-panel::-webkit-scrollbar-thumb,
-  .master-model-selector::-webkit-scrollbar-thumb,
-  .master-model-menu::-webkit-scrollbar-thumb,
-  .master-model-popover::-webkit-scrollbar-thumb,
-  .master-model-panel::-webkit-scrollbar-thumb {
-    background: rgba(125, 211, 252, 0.55) !important;
-    border-radius: 999px !important;
-  }
+.argos-model-menu-real-scroll-fix::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.68) !important;
+  border-radius: 999px !important;
+}
+
+.argos-model-menu-real-scroll-fix::-webkit-scrollbar-thumb {
+  background: rgba(125, 211, 252, 0.64) !important;
+  border-radius: 999px !important;
 }
 

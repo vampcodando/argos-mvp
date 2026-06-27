@@ -1067,6 +1067,81 @@ export function MasterChatHome() {
     return () => observer.disconnect();
   });
 
+  // ARGOS_MODEL_MENU_REAL_SCROLL_FIX
+  useEffect(() => {
+    const findModelMenuPanel = () => {
+      const candidates = Array.from(
+        document.querySelectorAll<HTMLElement>("div, aside, section")
+      )
+        .filter((element) => {
+          const text = element.innerText || "";
+          return (
+            text.includes("IA GEMINI / VISUAL") &&
+            text.includes("FLUX.1 Schnell") &&
+            text.includes("Limpar chat")
+          );
+        })
+        .filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            element !== document.body &&
+            rect.width >= 240 &&
+            rect.width <= 620 &&
+            rect.height >= 240
+          );
+        });
+
+      candidates.sort((a, b) => {
+        const rectA = a.getBoundingClientRect();
+        const rectB = b.getBoundingClientRect();
+        return rectA.width * rectA.height - rectB.width * rectB.height;
+      });
+
+      return candidates[0] || null;
+    };
+
+    const fixModelMenu = () => {
+      const panel = findModelMenuPanel();
+
+      if (!panel) {
+        return;
+      }
+
+      panel.classList.add("argos-model-menu-real-scroll-fix");
+      panel.style.maxHeight = "calc(100dvh - 1.5rem)";
+      panel.style.overflowY = "auto";
+      panel.style.overflowX = "hidden";
+      panel.style.scrollbarGutter = "stable both-edges";
+      panel.style.overscrollBehavior = "contain";
+
+      if (panel.dataset.argosModelMenuScrollFixed !== "1") {
+        panel.dataset.argosModelMenuScrollFixed = "1";
+        panel.scrollTop = 0;
+      }
+    };
+
+    const scheduleFix = () => {
+      fixModelMenu();
+      window.setTimeout(fixModelMenu, 50);
+      window.setTimeout(fixModelMenu, 180);
+      window.setTimeout(fixModelMenu, 400);
+    };
+
+    scheduleFix();
+
+    const observer = new MutationObserver(scheduleFix);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    window.addEventListener("click", scheduleFix, true);
+    window.addEventListener("resize", scheduleFix);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("click", scheduleFix, true);
+      window.removeEventListener("resize", scheduleFix);
+    };
+  }, []);
+
   return (
     <section className="master-chat-home" aria-label="Painel inicial do Mestre">
       <div className="master-chat-center">
