@@ -1,8 +1,16 @@
 ﻿import http from "node:http";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import path from "node:path";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.ARGOS_LOCAL_AI_PORT || 8787);
 const OLLAMA_BASE_URL = process.env.ARGOS_OLLAMA_URL || "http://127.0.0.1:11434";
+
+const execFileAsync = promisify(execFile);
+const HERMES_COMMAND = process.env.ARGOS_HERMES_COMMAND || path.join(process.env.LOCALAPPDATA || "", "hermes", "hermes-agent", "venv", "Scripts", "hermes.exe");
+const HERMES_TIMEOUT_MS = Number(process.env.ARGOS_HERMES_TIMEOUT_MS || 240000);
+const HERMES_PROMPT_LIMIT = Number(process.env.ARGOS_HERMES_PROMPT_LIMIT || 6000);
 
 const ALLOWED_MODELS = new Map([
   [
@@ -168,6 +176,12 @@ async function handleHealth(response, origin) {
         fileWriteEnabled: false,
         deployExecutionEnabled: false,
       },
+      hermes: {
+        configured: true,
+        command: HERMES_COMMAND,
+        route: "/local-ai/hermes/chat",
+        timeoutMs: HERMES_TIMEOUT_MS,
+      },
       allowedModels: Array.from(ALLOWED_MODELS.keys()),
     }, origin);
   } catch (error) {
@@ -289,6 +303,111 @@ async function handleChat(request, response, origin) {
   }, origin);
 }
 
+
+function buildHermesPrompt(userPrompt) {
+  return [
+    "Contexto oficial do ARGOS:",
+    "Voce e o Hermes Agent rodando localmente como agente auxiliar do ARGOS.",
+    "ARGOS e o orquestrador mestre, painel e camada de governanca.",
+    "Responda em portugues do Brasil.",
+    "Nao afirme que executou comandos, escreveu arquivos, fez deploy ou usou API externa se isso nao aconteceu.",
+    "Para comandos e ferramentas, quando necessario, proponha a acao de forma estruturada; o ARGOS classificara risco e executara apenas o que for permitido.",
+    "",
+    "Politica de autonomia do ARGOS:",
+    "READ_ONLY_AUTO: consultas, leitura, diagnosticos e listagens podem ser automaticos.",
+    "SAFE_LOCAL_AUTO: tarefas locais seguras dentro do projeto podem ser automaticas.",
+    "PROJECT_CHANGE_APPROVAL: alteracoes de arquivos/projeto precisam de aprovacao por lote.",
+    "CRITICAL_APPROVAL: deploy, push, delete, .env, APIs pagas, dados sensiveis e producao sempre exigem aprovacao.",
+    "",
+    "Mensagem do usuario:",
+    userPrompt,
+  ].join("\n");
+}
+
+function cleanHermesOutput(value) {
+  return String(value || "")
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+    .trim();
+}
+
+async function handleHermesChat(request, response, origin) {
+  const body = await readJsonBody(request, 16384);
+  const prompt = String(body.prompt || "").trim();
+
+  if (!prompt || prompt.length > HERMES_PROMPT_LIMIT) {
+    return sendJson(response, 400, {
+      ok: false,
+      error: {
+        code: "INVALID_PROMPT",
+        message: "Prompt vazio ou acima do limite permitido para o Hermes.",
+      },
+    }, origin);
+  }
+
+  const startedAt = Date.now();
+  const hermesPrompt = buildHermesPrompt(prompt);
+
+  try {
+    const result = await execFileAsync(
+      HERMES_COMMAND,
+      ["-z", hermesPrompt],
+      {
+        cwd: process.cwd(),
+        timeout: HERMES_TIMEOUT_MS,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024 * 4,
+        env: {
+          ...process.env,
+          HERMES_HOME: process.env.HERMES_HOME || path.join(process.env.LOCALAPPDATA || "", "hermes"),
+        },
+      }
+    );
+
+    const stdout = cleanHermesOutput(result.stdout);
+    const stderr = cleanHermesOutput(result.stderr);
+
+    return sendJson(response, 200, {
+      ok: true,
+      agent: "hermes",
+      mode: "oneshot",
+      command: HERMES_COMMAND,
+      response: stdout,
+      stderr: stderr || null,
+      metrics: {
+        durationMs: Date.now() - startedAt,
+        timeoutMs: HERMES_TIMEOUT_MS,
+      },
+      locks: {
+        paidApiEnabled: false,
+        directCommandExecutionByHermes: false,
+        argosPermissionPolicyEnabled: true,
+      },
+    }, origin);
+  } catch (error) {
+    const stdout = cleanHermesOutput(error.stdout);
+    const stderr = cleanHermesOutput(error.stderr);
+    const timedOut = error.killed || error.signal === "SIGTERM";
+
+    return sendJson(response, timedOut ? 504 : 502, {
+      ok: false,
+      agent: "hermes",
+      mode: "oneshot",
+      error: {
+        code: timedOut ? "HERMES_TIMEOUT" : "HERMES_FAILED",
+        message: error.code === "ENOENT"
+          ? "Comando hermes nao encontrado pelo processo da ponte local."
+          : error.message || "Falha ao executar Hermes local.",
+      },
+      stdout: stdout || null,
+      stderr: stderr || null,
+      metrics: {
+        durationMs: Date.now() - startedAt,
+        timeoutMs: HERMES_TIMEOUT_MS,
+      },
+    }, origin);
+  }
+}
+
 const server = http.createServer(async (request, response) => {
   const origin = request.headers.origin || null;
 
@@ -319,6 +438,10 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/local-ai/chat") {
       return handleChat(request, response, origin);
+    }
+
+    if (request.method === "POST" && url.pathname === "/local-ai/hermes/chat") {
+      return handleHermesChat(request, response, origin);
     }
 
     return sendJson(response, 404, {
