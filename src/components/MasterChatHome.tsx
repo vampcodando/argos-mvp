@@ -285,6 +285,117 @@ function buildPromptWithConversationContext(currentPrompt: string, history: Chat
   ].join("\n");
 }
 
+type ArgosToolContext = {
+  router: unknown;
+  tool: string;
+  endpoint: string;
+  reason?: string;
+  result: unknown;
+};
+
+function truncateToolText(value: string, maxLength = 12000) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength)}\n\n[ARGOS: resultado da ferramenta truncado para economizar contexto local.]`;
+}
+
+function serializeToolResult(result: unknown) {
+  const json = JSON.stringify(result, null, 2);
+
+  if (!json) {
+    return "{}";
+  }
+
+  return truncateToolText(json);
+}
+
+function buildPromptWithToolContext(promptWithContext: string, toolContext: ArgosToolContext) {
+  return [
+    "Você é o Mestre ARGOS operando com uma ferramenta real do sistema.",
+    "",
+    "REGRAS:",
+    "- Use o resultado da ferramenta como fonte principal quando ele responder à pergunta.",
+    "- Não invente dados fora do resultado da ferramenta.",
+    "- Responda em português brasileiro.",
+    "- Se a ferramenta retornou erro, explique o erro de forma objetiva.",
+    "- Quando fizer sentido, cite o nome da ferramenta usada.",
+    "",
+    `Ferramenta usada: ${toolContext.tool}`,
+    `Motivo do roteador: ${toolContext.reason || "nao informado"}`,
+    `Endpoint interno: ${toolContext.endpoint}`,
+    "",
+    "RESULTADO DA FERRAMENTA:",
+    serializeToolResult(toolContext.result),
+    "",
+    "CONVERSA / PERGUNTA DO USUÁRIO:",
+    promptWithContext,
+  ].join("\n");
+}
+
+async function resolveToolContextForPrompt(
+  currentPrompt: string,
+  signal: AbortSignal
+): Promise<ArgosToolContext | null> {
+  try {
+    const routerResponse = await fetch("/api/tools/router", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      signal,
+      body: JSON.stringify({
+        prompt: currentPrompt,
+      }),
+    });
+
+    const routerPayload = await routerResponse.json();
+
+    const detection = routerPayload?.detection;
+
+    if (
+      !routerResponse.ok ||
+      !routerPayload?.ok ||
+      !detection?.tool ||
+      !detection?.endpoint
+    ) {
+      return null;
+    }
+
+    const endpoint = String(detection.endpoint);
+
+    if (!endpoint.startsWith("/api/tools/")) {
+      return null;
+    }
+
+    const toolResponse = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+      },
+      signal,
+    });
+
+    const toolPayload = await toolResponse.json();
+
+    return {
+      router: routerPayload,
+      tool: String(detection.tool),
+      endpoint,
+      reason: detection.reason ? String(detection.reason) : undefined,
+      result: toolPayload,
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+
+    return null;
+  }
+}
+
 export function MasterChatHome() {
   const [selectedModel, setSelectedModel] = useState(() => loadStoredSelectedModel());
   const [modelsOpen, setModelsOpen] = useState(false);
@@ -862,6 +973,18 @@ export function MasterChatHome() {
         updateLoadingMessage(loadingId, `Consultando ${activeModel.name} via IA local...`);
       }
 
+      const toolContext = await resolveToolContextForPrompt(value, controller.signal);
+      const localPromptForModel = toolContext
+        ? buildPromptWithToolContext(promptWithContext, toolContext)
+        : promptWithContext;
+
+      if (toolContext) {
+        updateLoadingMessage(
+          loadingId,
+          `Ferramenta usada: ${toolContext.tool}. Consultando ${activeModel.name} via IA local...`
+        );
+      }
+
       const response = await fetch(`${LOCAL_AI_BRIDGE_URL}/local-ai/chat`, {
         method: "POST",
         headers: {
@@ -871,7 +994,7 @@ export function MasterChatHome() {
         signal: controller.signal,
         body: JSON.stringify({
           model: activeModel.id,
-          prompt: promptWithContext,
+          prompt: localPromptForModel,
         }),
       });
 
