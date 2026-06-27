@@ -293,7 +293,7 @@ type ArgosToolContext = {
   result: unknown;
 };
 
-function truncateToolText(value: string, maxLength = 12000) {
+function truncateToolText(value: string, maxLength = 900) {
   if (value.length <= maxLength) {
     return value;
   }
@@ -301,36 +301,74 @@ function truncateToolText(value: string, maxLength = 12000) {
   return `${value.slice(0, maxLength)}\n\n[ARGOS: resultado da ferramenta truncado para economizar contexto local.]`;
 }
 
-function serializeToolResult(result: unknown) {
-  const json = JSON.stringify(result, null, 2);
+function compactToolResultForModel(toolContext: ArgosToolContext) {
+  const result = toolContext.result as Record<string, any>;
+
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+
+  if (toolContext.tool === "weather") {
+    return {
+      ok: result.ok,
+      tool: result.tool,
+      source: result.source,
+      location: result.location,
+      current: result.current,
+      daily: Array.isArray(result.daily) ? result.daily.slice(0, 3) : [],
+    };
+  }
+
+  if (toolContext.tool === "github-repo") {
+    return {
+      ok: result.ok,
+      tool: result.tool,
+      source: result.source,
+      repo: result.repo,
+      reason: result.reason,
+    };
+  }
+
+  if (toolContext.tool === "read-url") {
+    return {
+      ok: result.ok,
+      tool: result.tool,
+      source: result.source,
+      title: result.title,
+      text: typeof result.text === "string" ? truncateToolText(result.text) : result.text,
+      reason: result.reason,
+    };
+  }
+
+  return result;
+}
+
+function serializeToolResult(toolContext: ArgosToolContext) {
+  const json = JSON.stringify(compactToolResultForModel(toolContext), null, 2);
 
   if (!json) {
     return "{}";
   }
 
-  return truncateToolText(json);
+  return truncateToolText(json, 1250);
 }
 
-function buildPromptWithToolContext(promptWithContext: string, toolContext: ArgosToolContext) {
+function buildPromptWithToolContext(currentPrompt: string, toolContext: ArgosToolContext) {
   return [
-    "Você é o Mestre ARGOS operando com uma ferramenta real do sistema.",
+    "Você é o Mestre ARGOS usando uma ferramenta real do sistema.",
+    `Ferramenta: ${toolContext.tool}`,
+    `Motivo: ${toolContext.reason || "nao informado"}`,
     "",
-    "REGRAS:",
-    "- Use o resultado da ferramenta como fonte principal quando ele responder à pergunta.",
-    "- Não invente dados fora do resultado da ferramenta.",
-    "- Responda em português brasileiro.",
-    "- Se a ferramenta retornou erro, explique o erro de forma objetiva.",
-    "- Quando fizer sentido, cite o nome da ferramenta usada.",
+    "Dados da ferramenta em JSON:",
+    serializeToolResult(toolContext),
     "",
-    `Ferramenta usada: ${toolContext.tool}`,
-    `Motivo do roteador: ${toolContext.reason || "nao informado"}`,
-    `Endpoint interno: ${toolContext.endpoint}`,
+    "Pergunta atual do usuário:",
+    currentPrompt,
     "",
-    "RESULTADO DA FERRAMENTA:",
-    serializeToolResult(toolContext.result),
-    "",
-    "CONVERSA / PERGUNTA DO USUÁRIO:",
-    promptWithContext,
+    "Responda em português brasileiro, de forma direta.",
+    "Use apenas os dados da ferramenta para datas, números e condições.",
+    "Não mencione bastidores como router, endpoint, JSON ou ferramenta retornou.",
+    "Se a pergunta pedir comparação ou recomendação, compare usando somente os dados acima.",
   ].join("\n");
 }
 
@@ -1102,7 +1140,7 @@ export function MasterChatHome() {
       }
 
       const localPromptForModel = toolContext
-        ? buildPromptWithToolContext(promptWithContext, toolContext)
+        ? buildPromptWithToolContext(value, toolContext)
         : promptWithContext;
 
       if (toolContext) {
