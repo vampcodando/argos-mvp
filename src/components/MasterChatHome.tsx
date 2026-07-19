@@ -14,6 +14,7 @@ type ChatMessage = {
   role: "master" | "user";
   text: string;
   status?: "normal" | "loading" | "error";
+  label?: string;
   imageBase64?: string;
   imageMimeType?: string;
 };
@@ -30,6 +31,7 @@ type OnlineGatewayStatusPayload = {
   baseConfigured: boolean;
   modelConfigured: boolean;
   provider?: string;
+  model?: string;
 };
 
 type SupervisorStatusPayload = {
@@ -100,14 +102,7 @@ function hasAnyLocalService(payload: SupervisorStatusPayload) {
 }
 
 
-const DEFAULT_MASTER_MESSAGES: ChatMessage[] = [
-  {
-    id: "welcome",
-    role: "master",
-    text:
-      "ARGOS pronto. O executor online ou local será escolhido automaticamente conforme disponibilidade.",
-  },
-];
+const DEFAULT_MASTER_MESSAGES: ChatMessage[] = [];
 
 function isStoredChatMessage(value: unknown): value is ChatMessage {
   if (!value || typeof value !== "object") {
@@ -145,6 +140,7 @@ function loadStoredMessages(): ChatMessage[] {
 
     const messages: ChatMessage[] = parsed
       .filter(isStoredChatMessage)
+      .filter((message) => message.id !== "welcome")
       .map((message): ChatMessage => ({
         ...message,
         status: message.status === "error" ? "error" : "normal",
@@ -186,8 +182,8 @@ function saveStoredMessages(messages: ChatMessage[]) {
 function buildPromptWithConversationContext(currentPrompt: string, history: ChatMessage[]) {
   const recentHistory = history
     .filter((message) => message.id !== "welcome" && message.status !== "loading")
-    .slice(-16)
-    .map((message) => (message.role === "user" ? "Usuario: " : "Mestre: ") + message.text)
+    .slice(-80)
+    .map((message) => (message.role === "user" ? "Mestre: " : "ARGOS: ") + message.text)
     .join("\n");
 
   if (!recentHistory) {
@@ -275,7 +271,7 @@ function serializeToolResult(toolContext: ArgosToolContext) {
 
 function buildPromptWithToolContext(currentPrompt: string, toolContext: ArgosToolContext) {
   return [
-    "Você é o Mestre ARGOS usando uma ferramenta real do sistema.",
+    "Você é o ARGOS, assistente técnico do Mestre, usando uma ferramenta real do sistema.",
     `Ferramenta: ${toolContext.tool}`,
     `Motivo: ${toolContext.reason || "nao informado"}`,
     "",
@@ -640,6 +636,7 @@ export function MasterChatHome() {
       {
         id: loadingId,
         role: "master",
+        label: "ARGOS — Sistema local",
         text: "Ligando IA local pelo supervisor...",
         status: "loading",
       },
@@ -698,6 +695,7 @@ export function MasterChatHome() {
       {
         id: createId(),
         role: "master",
+        label: "ARGOS — Sistema local",
         text: "Comando de desligamento enviado ao supervisor local.",
         status: "normal",
       },
@@ -731,9 +729,9 @@ export function MasterChatHome() {
 
     const executorLabel =
       onlineAiStatus === "online"
-        ? "ARGOS online"
+        ? "z-ai/glm-5.2"
         : localAiStatus === "online"
-          ? "ARGOS local"
+          ? LOCAL_FALLBACK_MODEL_ID
           : null;
 
     setMessages((current) => [
@@ -742,6 +740,9 @@ export function MasterChatHome() {
       {
         id: loadingId,
         role: "master",
+        label: executorLabel
+          ? "ARGOS — " + executorLabel
+          : "ARGOS",
         text: executorLabel
           ? `Consultando ${executorLabel}...`
           : "Nenhum executor pronto. Verifique o serviço online ou ligue a IA local.",
@@ -764,10 +765,17 @@ export function MasterChatHome() {
           buildDirectToolResponse(value, toolContext);
 
         if (directToolResponse) {
-          updateLoadingMessage(
-            loadingId,
-            directToolResponse,
-            "normal"
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === loadingId
+                ? {
+                    ...message,
+                    text: directToolResponse,
+                    status: "normal",
+                    label: "ARGOS — Ferramenta",
+                  }
+                : message
+            )
           );
           return;
         }
@@ -776,6 +784,27 @@ export function MasterChatHome() {
       const promptForExecutor = toolContext
         ? buildPromptWithToolContext(value, toolContext)
         : promptWithContext;
+
+      const onlinePromptForExecutor = [
+        "Você é o ARGOS, assistente técnico do Mestre.",
+        "Executor atual: z-ai/glm-5.2.",
+        "Responda diretamente, com profundidade proporcional ao pedido.",
+        "Quando o Mestre perguntar, informe claramente o modelo e a versão em uso.",
+        "Não invente políticas de ocultação, limitações, capacidades ou ações.",
+        "Não afirme que executou arquivos, comandos ou testes que não executou.",
+        "Em programação, forneça soluções completas, precisas e tecnicamente verificáveis.",
+        promptForExecutor,
+      ].join("\n\n");
+
+      const localPromptForExecutor = [
+        "Você é o ARGOS, assistente técnico do Mestre.",
+        "Executor local atual: " + LOCAL_FALLBACK_MODEL_ID + ".",
+        "Responda diretamente, com profundidade proporcional ao pedido.",
+        "Quando o Mestre perguntar, informe claramente o modelo local em uso.",
+        "Não invente políticas de ocultação, limitações, capacidades ou ações.",
+        "Não afirme que executou arquivos, comandos ou testes que não executou.",
+        promptForExecutor,
+      ].join("\n\n");
 
       if (onlineAiStatus === "online") {
         const response = await fetch("/api/ai/chat", {
@@ -787,8 +816,8 @@ export function MasterChatHome() {
           signal: controller.signal,
           body: JSON.stringify({
             dataClass: "generic_chat",
-            prompt: promptForExecutor,
-            max_tokens: 2000,
+            prompt: onlinePromptForExecutor,
+            max_tokens: 32768,
           }),
         });
 
@@ -801,11 +830,23 @@ export function MasterChatHome() {
           );
         }
 
-        updateLoadingMessage(
-          loadingId,
-          payload.response ||
-            "O ARGOS online respondeu sem conteúdo.",
-          "normal"
+        const responseModel = String(
+          payload.model || "z-ai/glm-5.2"
+        );
+
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === loadingId
+              ? {
+                  ...message,
+                  text:
+                    payload.response ||
+                    "O ARGOS online respondeu sem conteúdo.",
+                  status: "normal",
+                  label: "ARGOS — " + responseModel,
+                }
+              : message
+          )
         );
 
         return;
@@ -835,7 +876,7 @@ export function MasterChatHome() {
           signal: controller.signal,
           body: JSON.stringify({
             model: LOCAL_FALLBACK_MODEL_ID,
-            prompt: promptForExecutor,
+            prompt: localPromptForExecutor,
           }),
         }
       );
@@ -849,11 +890,23 @@ export function MasterChatHome() {
         );
       }
 
-      updateLoadingMessage(
-        loadingId,
-        payload.response ||
-          "A IA local respondeu sem conteúdo.",
-        "normal"
+      const responseModel = String(
+        payload.model || LOCAL_FALLBACK_MODEL_ID
+      );
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === loadingId
+            ? {
+                ...message,
+                text:
+                  payload.response ||
+                  "A IA local respondeu sem conteúdo.",
+                status: "normal",
+                label: "ARGOS — " + responseModel,
+              }
+            : message
+        )
       );
     } catch (error) {
       const cancelled =
@@ -1038,14 +1091,11 @@ export function MasterChatHome() {
   });
 
   return (
-    <section className="master-chat-home" aria-label="Painel inicial do Mestre">
+    <section className="master-chat-home" aria-label="Painel do ARGOS">
       <div className="master-chat-center">
         <div className="master-hero">
           <img src={argosHero} alt="Centuriao ARGOS" className="master-hero-image" />
           <h2 className="master-hero-title">ARGOS</h2>
-          <p className="master-hero-subtitle">
-            Project Master. Comando, contexto, validação e auditoria.
-          </p>
         </div>
 
         <div className="master-chat-flags">
@@ -1095,7 +1145,11 @@ export function MasterChatHome() {
               message.status === "error" ? "master-chat-message-error" : ""
             } ${message.status === "loading" ? "master-chat-message-loading" : ""}`}
           >
-            <span>{message.role === "master" ? "Mestre" : "Voce"}</span>
+            <span>
+              {message.role === "master"
+                ? message.label || "ARGOS"
+                : "MESTRE"}
+            </span>
             <p>{message.text}</p>
             {message.imageBase64 ? (
               <img
@@ -1112,13 +1166,8 @@ export function MasterChatHome() {
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={
-            localAiStatus === "partial"
-              ? "Serviço local parcialmente ativo. Use o controle acima para completar ou desligar."
-              : "Converse com o ARGOS. O executor será escolhido automaticamente."
-          }
+          placeholder="Digite sua mensagem..."
           rows={3}
-          maxLength={2000}
           disabled={sending}
         />
 

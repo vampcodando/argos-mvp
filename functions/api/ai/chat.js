@@ -235,6 +235,7 @@ export async function onRequestGet(context) {
     baseConfigured: config.baseConfigured,
     modelConfigured: config.modelConfigured,
     provider: config.provider,
+    model: config.model,
     routingMode: "automatic_single_gateway",
     sensitiveDataLocalOnly: true,
   });
@@ -342,9 +343,9 @@ export async function onRequestPost(context) {
         ),
         max_tokens: clampNumber(
           payload.max_tokens,
-          2000,
-          128,
-          8000
+          32768,
+          1,
+          32768
         ),
         stream: false,
       }),
@@ -401,6 +402,7 @@ export async function onRequestPost(context) {
       ok: true,
       route: "online",
       provider: config.provider,
+      model: String(data?.model || config.model),
       response: responseText,
       usage: data?.usage || null,
     });
