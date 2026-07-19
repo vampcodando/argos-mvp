@@ -6,7 +6,6 @@ import { CanvasPanel } from "../modules/canvas/CanvasPanel";
 import { ConsolePanel } from "../modules/console/ConsolePanel";
 import { MasterPanel } from "../modules/master/MasterPanel";
 import { MissionsPanel } from "../modules/missions/MissionsPanel";
-import { ModelsPanel } from "../modules/models/ModelsPanel";
 import { IconRail } from "./IconRail";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -24,8 +23,6 @@ function renderPanel(activeSection: SectionId) {
       return <CanvasPanel />;
     case "console":
       return <ConsolePanel />;
-    case "models":
-      return <ModelsPanel />;
     case "audit":
       return <AuditPanel />;
     default:

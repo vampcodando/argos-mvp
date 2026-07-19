@@ -4,7 +4,6 @@ export type SectionId =
   | "missions"
   | "canvas"
   | "console"
-  | "models"
   | "audit";
 
 export type NavItem = {
@@ -50,13 +49,6 @@ export const NAV_ITEMS: NavItem[] = [
     short: "T",
     icon: ">_",
     description: "Comandos, logs, interpretacao, validacao e aprovacao.",
-  },
-  {
-    id: "models",
-    label: "Modelos",
-    short: "MO",
-    icon: "MO",
-    description: "OpenAI, Ollama, endpoints compativeis, custo e aprovacao.",
   },
   {
     id: "audit",
