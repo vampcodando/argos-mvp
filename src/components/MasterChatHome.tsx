@@ -1,10 +1,9 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_LOCAL_MODEL, LOCAL_OLLAMA_MODELS } from "../data/localModels";
+import { useEffect, useRef, useState } from "react";
 import argosHero from "../assets/argos-centurion.png";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
-const HERMES_LOCAL_MODEL_ID = "local-hermes-agent";
+const LOCAL_FALLBACK_MODEL_ID = "qwen2.5:3b";
 const MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v2";
 const LEGACY_MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
 const LEGACY_MASTER_CHAT_STORAGE_PREFIX = "argos.masterChat.messagesByModel.v1";
@@ -21,81 +20,16 @@ type ChatMessage = {
 
 type LocalAiStatus = "checking" | "off" | "partial" | "starting" | "online" | "stopping" | "error";
 
-type BridgeModel = {
-  id: string;
-  name: string;
-  size: string;
-  role: string;
-  preferred: boolean;
-  installed: boolean;
-};
+type OnlineAiStatus = "checking" | "online" | "off" | "error";
 
-type OpenRouterApprovedModel = {
-  id: string;
-  label: string;
-  provider: string;
-  group: string;
-  contextLength: number;
-  recommendedFor: string[];
-  notes: string;
-};
-
-type OpenRouterStatusPayload = {
+type OnlineGatewayStatusPayload = {
   ok: boolean;
+  ready: boolean;
   enabled: boolean;
   keyPresent: boolean;
-  defaultModel: string;
-  freeOnly: boolean;
-  modelSelectionMode: string;
-  approvedModels?: OpenRouterApprovedModel[];
-};
-
-type GeminiVisualModel = {
-  id: string;
-  label: string;
-  mode: "prompt_builder" | "image_generation";
-  role: string;
-  description: string;
-};
-
-type GeminiStatusPayload = {
-  ok: boolean;
-  enabled: boolean;
-  keyPresent: boolean;
-  defaultPromptModel: string;
-  defaultImageModel: string;
-  routingRule: string;
-  approvedModels?: GeminiVisualModel[];
-};
-
-type CloudflareImageModel = {
-  id: string;
-  label: string;
-  provider: string;
-  group: string;
-  role: string;
-  description: string;
-};
-
-type CloudflareImageStatusPayload = {
-  ok: boolean;
-  bindingPresent: boolean;
-  defaultModel: string;
-  routingRule: string;
-  approvedModels?: CloudflareImageModel[];
-};
-
-type ChatModelOption = {
-  id: string;
-  name: string;
-  endpoint: string;
-  size: string;
-  role: string;
-  status: string;
-  provider: "local" | "openrouter" | "gemini" | "cloudflare_image";
-  projectKind?: string;
-  dataClass?: string;
-  geminiMode?: "prompt_builder" | "image_generation";
+  baseConfigured: boolean;
+  modelConfigured: boolean;
+  provider?: string;
 };
 
 type SupervisorStatusPayload = {
@@ -108,7 +42,6 @@ type SupervisorStatusPayload = {
   bridge?: {
     ok: boolean;
   };
-  models?: BridgeModel[];
 };
 
 function createId() {
@@ -123,7 +56,7 @@ function loadLegacyStoredMessagesRaw(): string | null {
   try {
     const selectedModel =
       window.localStorage.getItem(LEGACY_MASTER_CHAT_SELECTED_MODEL_KEY) ||
-      DEFAULT_LOCAL_MODEL.id;
+      LOCAL_FALLBACK_MODEL_ID;
 
     return (
       window.localStorage.getItem(
@@ -543,13 +476,7 @@ export function MasterChatHome() {
   const [sending, setSending] = useState(false);
   const [activeLoadingId, setActiveLoadingId] = useState<string | null>(null);
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus>("checking");
-  const [bridgeModels, setBridgeModels] = useState<BridgeModel[]>([]);
-  const [openRouterModels, setOpenRouterModels] = useState<OpenRouterApprovedModel[]>([]);
-  const [openRouterStatus, setOpenRouterStatus] = useState<OpenRouterStatusPayload | null>(null);
-  const [geminiModels, setGeminiModels] = useState<GeminiVisualModel[]>([]);
-  const [geminiStatus, setGeminiStatus] = useState<GeminiStatusPayload | null>(null);
-  const [cloudflareImageModels, setCloudflareImageModels] = useState<CloudflareImageModel[]>([]);
-  const [cloudflareImageStatus, setCloudflareImageStatus] = useState<CloudflareImageStatusPayload | null>(null);
+  const [onlineAiStatus, setOnlineAiStatus] = useState<OnlineAiStatus>("checking");
   const abortRef = useRef<AbortController | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
@@ -558,9 +485,7 @@ export function MasterChatHome() {
 
   useEffect(() => {
     refreshSupervisorStatus();
-    refreshOpenRouterStatus();
-    refreshGeminiStatus();
-    refreshCloudflareImageStatus();
+    refreshOnlineStatus();
 
     return () => {
       abortRef.current?.abort();
@@ -570,106 +495,6 @@ export function MasterChatHome() {
   useEffect(() => {
     saveStoredMessages(messages);
   }, [messages]);
-
-  const ollamaModels: ChatModelOption[] = bridgeModels.length
-    ? bridgeModels.map((model) => ({
-        id: model.id,
-        name: model.name,
-        endpoint: "Supervisor 8786 -> Bridge 8787 -> Ollama 11434",
-        size: model.size,
-        role: model.installed ? model.role : `${model.role} Modelo nao instalado.`,
-        status: model.preferred ? "preferred" : "heavy",
-        provider: "local",
-      }))
-    : LOCAL_OLLAMA_MODELS.map((model) => ({
-        ...model,
-        provider: "local",
-      }));
-
-  const hermesLocalModel: ChatModelOption = {
-    id: HERMES_LOCAL_MODEL_ID,
-    name: "Hermes Agent",
-    endpoint: "Bridge 8787 -> Hermes headless -> Ollama local",
-    size: "AGENTE LOCAL",
-    role: "Agente local headless controlado pelo ARGOS. Nesta fase, nao executa comandos diretamente; responde e propoe acoes para a politica de permissao.",
-    status: "preferred",
-    provider: "local",
-  };
-
-  const localModels: ChatModelOption[] = [...ollamaModels, hermesLocalModel];
-
-  const cloudModels: ChatModelOption[] = openRouterModels.map((model) => ({
-    id: model.id,
-    name: model.label,
-    endpoint: "Cloudflare backend -> OpenRouter Free",
-    size: model.provider,
-    role: `${model.group}. ${model.notes}`,
-    status: model.id === openRouterStatus?.defaultModel ? "preferred" : "heavy",
-    provider: "openrouter",
-    projectKind: "marketing",
-    dataClass: "generic_prompt",
-  }));
-
-  const geminiChatModels: ChatModelOption[] = geminiModels.map((model) => ({
-    id: model.id,
-    name: model.label,
-    endpoint:
-      model.mode === "image_generation"
-        ? "Google Gemini API -> gerador de imagem"
-        : "Google Gemini API -> construtor de prompt/JSON",
-    size: model.mode === "image_generation" ? "IMAGEM" : "PROMPT/JSON",
-    role: model.description,
-    status:
-      model.id === geminiStatus?.defaultPromptModel ||
-      model.id === geminiStatus?.defaultImageModel
-        ? "preferred"
-        : "heavy",
-    provider: "gemini",
-    projectKind: "marketing",
-    dataClass: model.mode === "image_generation" ? "creative_asset" : "generic_prompt",
-    geminiMode: model.mode,
-  }));
-
-  const cloudflareImageChatModels: ChatModelOption[] = cloudflareImageModels.map((model) => ({
-    id: model.id,
-    name: model.label,
-    endpoint: "Cloudflare Workers AI -> gerador de imagem free",
-    size: "IMAGEM FREE",
-    role: model.description,
-    status: model.id === cloudflareImageStatus?.defaultModel ? "preferred" : "heavy",
-    provider: "cloudflare_image",
-    projectKind: "marketing",
-    dataClass: "creative_asset",
-  }));
-
-  const models: ChatModelOption[] = [
-    ...localModels,
-    ...cloudModels,
-    ...geminiChatModels,
-    ...cloudflareImageChatModels,
-  ];
-
-  const onlineAvailable = Boolean(
-    openRouterStatus?.enabled &&
-    openRouterStatus?.keyPresent &&
-    openRouterStatus?.defaultModel
-  );
-
-  const selectedModel =
-    onlineAvailable && openRouterStatus?.defaultModel
-      ? openRouterStatus.defaultModel
-      : DEFAULT_LOCAL_MODEL.id;
-
-  const fallbackModel: ChatModelOption =
-    models[0] ?? {
-      ...DEFAULT_LOCAL_MODEL,
-      provider: "local",
-    };
-
-  const activeModel = useMemo(
-    () => models.find((model) => model.id === selectedModel) ?? fallbackModel,
-    [fallbackModel, models, selectedModel]
-  );
 
   function handleClearChat() {
     if (sending) {
@@ -701,8 +526,6 @@ export function MasterChatHome() {
   }
 
   function applySupervisorStatus(payload: SupervisorStatusPayload) {
-    setBridgeModels(payload.models || []);
-
     if (payload.localAiReady) {
       setLocalAiStatus("online");
       return;
@@ -736,14 +559,15 @@ export function MasterChatHome() {
 
       applySupervisorStatus(payload);
     } catch {
-      setBridgeModels([]);
       setLocalAiStatus("off");
     }
   }
 
-  async function refreshOpenRouterStatus() {
+  async function refreshOnlineStatus() {
+    setOnlineAiStatus("checking");
+
     try {
-      const response = await fetch("/api/provider/openrouter", {
+      const response = await fetch("/api/ai/chat", {
         method: "GET",
         cache: "no-store",
         headers: {
@@ -751,65 +575,17 @@ export function MasterChatHome() {
         },
       });
 
-      const payload = (await response.json()) as OpenRouterStatusPayload;
+      const payload =
+        (await response.json()) as OnlineGatewayStatusPayload;
 
-      if (!response.ok || !payload.ok || !payload.enabled || !payload.keyPresent) {
-        throw new Error("Provider OpenRouter indisponivel.");
+      if (!response.ok || !payload.ok || !payload.ready) {
+        setOnlineAiStatus("off");
+        return;
       }
 
-      setOpenRouterStatus(payload);
-      setOpenRouterModels(payload.approvedModels || []);
+      setOnlineAiStatus("online");
     } catch {
-      setOpenRouterStatus(null);
-      setOpenRouterModels([]);
-    }
-  }
-
-  async function refreshGeminiStatus() {
-    try {
-      const response = await fetch("/api/provider/gemini", {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
-      });
-
-      const payload = (await response.json()) as GeminiStatusPayload;
-
-      if (!response.ok || !payload.ok || !payload.enabled || !payload.keyPresent) {
-        throw new Error("Provider Gemini indisponivel.");
-      }
-
-      setGeminiStatus(payload);
-      setGeminiModels(payload.approvedModels || []);
-    } catch {
-      setGeminiStatus(null);
-      setGeminiModels([]);
-    }
-  }
-
-  async function refreshCloudflareImageStatus() {
-    try {
-      const response = await fetch("/api/provider/cloudflare-image", {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-          accept: "application/json",
-        },
-      });
-
-      const payload = (await response.json()) as CloudflareImageStatusPayload;
-
-      if (!response.ok || !payload.ok || !payload.bindingPresent) {
-        throw new Error("Provider Cloudflare Image indisponivel.");
-      }
-
-      setCloudflareImageStatus(payload);
-      setCloudflareImageModels(payload.approvedModels || []);
-    } catch {
-      setCloudflareImageStatus(null);
-      setCloudflareImageModels([]);
+      setOnlineAiStatus("off");
     }
   }
 
@@ -940,11 +716,8 @@ export function MasterChatHome() {
       return;
     }
 
-    const promptWithContext = buildPromptWithConversationContext(value, messages);
-    const isOpenRouterModel = activeModel.provider === "openrouter";
-    const isGeminiModel = activeModel.provider === "gemini";
-    const isCloudflareImageModel = activeModel.provider === "cloudflare_image";
-    const isHermesModel = activeModel.id === HERMES_LOCAL_MODEL_ID;
+    const promptWithContext =
+      buildPromptWithConversationContext(value, messages);
 
     const userMessage: ChatMessage = {
       id: createId(),
@@ -956,25 +729,22 @@ export function MasterChatHome() {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const executorLabel =
+      onlineAiStatus === "online"
+        ? "ARGOS online"
+        : localAiStatus === "online"
+          ? "ARGOS local"
+          : null;
+
     setMessages((current) => [
       ...current,
       userMessage,
       {
         id: loadingId,
         role: "master",
-        text: isCloudflareImageModel
-          ? `Gerando imagem com ${activeModel.name}...`
-          : isGeminiModel
-            ? activeModel.geminiMode === "image_generation"
-              ? `Gerando imagem com ${activeModel.name}...`
-              : `Construindo prompt/JSON com ${activeModel.name}...`
-            : isOpenRouterModel
-              ? `Consultando ${activeModel.name} via OpenRouter Free...`
-            : isHermesModel
-              ? `Consultando ${activeModel.name} via Hermes local...`
-            : localAiStatus === "online"
-            ? `Consultando ${activeModel.name} via IA local...`
-            : "Nenhum executor pronto. Verifique o serviço online ou ligue a IA local.",
+        text: executorLabel
+          ? `Consultando ${executorLabel}...`
+          : "Nenhum executor pronto. Verifique o serviço online ou ligue a IA local.",
         status: "loading",
       },
     ]);
@@ -984,47 +754,31 @@ export function MasterChatHome() {
     setActiveLoadingId(loadingId);
 
     try {
-      if (isCloudflareImageModel) {
-        const response = await fetch("/api/provider/cloudflare-image", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            accept: "application/json",
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
-            projectKind: activeModel.projectKind || "marketing",
-            dataClass: activeModel.dataClass || "creative_asset",
-            model: activeModel.id,
-            prompt: value,
-          }),
-        });
+      const toolContext = await resolveToolContextForPrompt(
+        value,
+        controller.signal
+      );
 
-        const payload = await response.json();
+      if (toolContext) {
+        const directToolResponse =
+          buildDirectToolResponse(value, toolContext);
 
-        if (!response.ok || !payload.ok) {
-          throw new Error(
-            payload?.reason || "Falha ao consultar Cloudflare Workers AI."
+        if (directToolResponse) {
+          updateLoadingMessage(
+            loadingId,
+            directToolResponse,
+            "normal"
           );
+          return;
         }
-
-        updateLoadingMessage(
-          loadingId,
-          payload.response || "Imagem gerada pelo Cloudflare Workers AI.",
-          "normal",
-          payload.imageBase64
-            ? {
-                imageBase64: payload.imageBase64,
-                imageMimeType: payload.mimeType || "image/jpeg",
-              }
-            : undefined
-        );
-
-        return;
       }
 
-      if (isGeminiModel) {
-        const response = await fetch("/api/provider/gemini", {
+      const promptForExecutor = toolContext
+        ? buildPromptWithToolContext(value, toolContext)
+        : promptWithContext;
+
+      if (onlineAiStatus === "online") {
+        const response = await fetch("/api/ai/chat", {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -1032,16 +786,9 @@ export function MasterChatHome() {
           },
           signal: controller.signal,
           body: JSON.stringify({
-            projectKind: activeModel.projectKind || "marketing",
-            dataClass:
-              activeModel.dataClass ||
-              (activeModel.geminiMode === "image_generation"
-                ? "creative_asset"
-                : "generic_prompt"),
-            mode: activeModel.geminiMode || "prompt_builder",
-            model: activeModel.id,
-            max_tokens: 1600,
-            prompt: promptWithContext,
+            dataClass: "generic_chat",
+            prompt: promptForExecutor,
+            max_tokens: 2000,
           }),
         });
 
@@ -1050,62 +797,14 @@ export function MasterChatHome() {
         if (!response.ok || !payload.ok) {
           throw new Error(
             payload?.reason ||
-              payload?.error?.message ||
-              "Falha ao consultar Gemini Visual."
+            "Falha ao consultar o ARGOS online."
           );
         }
 
         updateLoadingMessage(
           loadingId,
-          payload.response || "Gemini respondeu sem texto.",
-          "normal",
-          payload.imageBase64
-            ? {
-                imageBase64: payload.imageBase64,
-                imageMimeType: payload.mimeType || "image/png",
-              }
-            : undefined
-        );
-
-        return;
-      }
-
-      if (isOpenRouterModel) {
-        const response = await fetch("/api/provider/openrouter", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            accept: "application/json",
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
-            projectKind: activeModel.projectKind || "marketing",
-            dataClass: activeModel.dataClass || "generic_prompt",
-            model: activeModel.id,
-            max_tokens: 1000,
-            messages: [
-              {
-                role: "user",
-                content: promptWithContext,
-              },
-            ],
-          }),
-        });
-
-        const payload = await response.json();
-
-        if (!response.ok || !payload.ok) {
-          throw new Error(
-            payload?.reason ||
-              payload?.error?.message ||
-              payload?.error?.error?.message ||
-              "Falha ao consultar OpenRouter Free."
-          );
-        }
-
-        updateLoadingMessage(
-          loadingId,
-          payload.response || "OpenRouter Free respondeu sem conteudo.",
+          payload.response ||
+            "O ARGOS online respondeu sem conteúdo.",
           "normal"
         );
 
@@ -1118,59 +817,48 @@ export function MasterChatHome() {
         );
       }
 
-      const toolContext = await resolveToolContextForPrompt(value, controller.signal);
-
-      if (toolContext) {
-        const directToolResponse = buildDirectToolResponse(value, toolContext);
-
-        if (directToolResponse) {
-          updateLoadingMessage(loadingId, directToolResponse, "normal");
-          return;
-        }
-      }
-
-      const localPromptForModel = toolContext
-        ? buildPromptWithToolContext(value, toolContext)
-        : promptWithContext;
-
       if (toolContext) {
         updateLoadingMessage(
           loadingId,
-          `Ferramenta usada: ${toolContext.tool}. Consultando ${activeModel.name} via IA local...`
+          `Ferramenta usada: ${toolContext.tool}. Consultando ARGOS local...`
         );
       }
 
-      const localEndpoint = isHermesModel
-        ? `${LOCAL_AI_BRIDGE_URL}/local-ai/hermes/chat`
-        : `${LOCAL_AI_BRIDGE_URL}/local-ai/chat`;
-
-      const localBody = isHermesModel
-        ? { prompt: localPromptForModel }
-        : { model: activeModel.id, prompt: localPromptForModel };
-
-      const response = await fetch(localEndpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-        },
-        signal: controller.signal,
-        body: JSON.stringify(localBody),
-      });
+      const response = await fetch(
+        `${LOCAL_AI_BRIDGE_URL}/local-ai/chat`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: LOCAL_FALLBACK_MODEL_ID,
+            prompt: promptForExecutor,
+          }),
+        }
+      );
 
       const payload = await response.json();
 
       if (!response.ok || !payload.ok) {
-        throw new Error(payload?.error?.message || "Falha ao consultar IA local.");
+        throw new Error(
+          payload?.error?.message ||
+          "Falha ao consultar a IA local."
+        );
       }
 
       updateLoadingMessage(
         loadingId,
-        payload.response || "A IA local respondeu sem conteudo.",
+        payload.response ||
+          "A IA local respondeu sem conteúdo.",
         "normal"
       );
     } catch (error) {
-      const cancelled = error instanceof DOMException && error.name === "AbortError";
+      const cancelled =
+        error instanceof DOMException &&
+        error.name === "AbortError";
 
       updateLoadingMessage(
         loadingId,
@@ -1178,19 +866,9 @@ export function MasterChatHome() {
           ? "Consulta cancelada ou tempo limite atingido."
           : error instanceof Error
             ? error.message
-            : isCloudflareImageModel
-              ? "Erro desconhecido no Cloudflare Workers AI."
-              : isGeminiModel
-                ? "Erro desconhecido no Gemini Visual."
-                : isOpenRouterModel
-                  ? "Erro desconhecido no OpenRouter Free."
-                  : "Erro desconhecido na IA local.",
+            : "Erro desconhecido ao consultar o ARGOS.",
         "error"
       );
-
-      if (!cancelled && !isOpenRouterModel && !isGeminiModel && !isCloudflareImageModel && localAiStatus !== "online") {
-        setLocalAiStatus("error");
-      }
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
@@ -1200,6 +878,15 @@ export function MasterChatHome() {
       setActiveLoadingId(null);
     }
   }
+
+  const onlineStatusLabel =
+    onlineAiStatus === "checking"
+      ? "ARGOS online: verificando"
+      : onlineAiStatus === "online"
+        ? "ARGOS online: disponível"
+        : onlineAiStatus === "error"
+          ? "ARGOS online: erro"
+          : "ARGOS online: indisponível";
 
   const statusLabel =
     localAiStatus === "checking"
@@ -1357,16 +1044,12 @@ export function MasterChatHome() {
           <img src={argosHero} alt="Centuriao ARGOS" className="master-hero-image" />
           <h2 className="master-hero-title">ARGOS</h2>
           <p className="master-hero-subtitle">
-            Project Master local. Comando, contexto, validacao e auditoria.
+            Project Master. Comando, contexto, validação e auditoria.
           </p>
         </div>
 
         <div className="master-chat-flags">
-          <span>
-            {onlineAvailable
-              ? "ARGOS online: disponível"
-              : "ARGOS online: indisponível"}
-          </span>
+          <span>{onlineStatusLabel}</span>
 
           <span className={`local-ai-status local-ai-status-${localAiStatus}`}>
             {statusLabel}
