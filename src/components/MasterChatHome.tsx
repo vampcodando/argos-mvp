@@ -5,9 +5,10 @@ import argosHero from "../assets/argos-centurion.png";
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
 const HERMES_LOCAL_MODEL_ID = "local-hermes-agent";
+const MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v2";
 const LEGACY_MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
-const MASTER_CHAT_STORAGE_PREFIX = "argos.masterChat.messagesByModel.v1";
-const MASTER_CHAT_SELECTED_MODEL_KEY = "argos.masterChat.selectedModel.v1";
+const LEGACY_MASTER_CHAT_STORAGE_PREFIX = "argos.masterChat.messagesByModel.v1";
+const LEGACY_MASTER_CHAT_SELECTED_MODEL_KEY = "argos.masterChat.selectedModel.v1";
 
 type ChatMessage = {
   id: string;
@@ -114,51 +115,28 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getModelMessagesStorageKey(modelId: string) {
-  return `${MASTER_CHAT_STORAGE_PREFIX}.${encodeURIComponent(modelId)}`;
-}
-
-function loadStoredSelectedModel() {
+function loadLegacyStoredMessagesRaw(): string | null {
   if (typeof window === "undefined") {
-    return DEFAULT_LOCAL_MODEL.id;
+    return null;
   }
 
   try {
-    return window.localStorage.getItem(MASTER_CHAT_SELECTED_MODEL_KEY) || DEFAULT_LOCAL_MODEL.id;
+    const selectedModel =
+      window.localStorage.getItem(LEGACY_MASTER_CHAT_SELECTED_MODEL_KEY) ||
+      DEFAULT_LOCAL_MODEL.id;
+
+    return (
+      window.localStorage.getItem(
+        `${LEGACY_MASTER_CHAT_STORAGE_PREFIX}.${encodeURIComponent(selectedModel)}`
+      ) ||
+      window.localStorage.getItem(LEGACY_MASTER_CHAT_STORAGE_KEY)
+    );
   } catch {
-    return DEFAULT_LOCAL_MODEL.id;
+    return null;
   }
 }
 
-function saveStoredSelectedModel(modelId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(MASTER_CHAT_SELECTED_MODEL_KEY, modelId);
-  } catch {
-    // armazenamento local indisponivel; nao quebra a selecao visual
-  }
-}
-
-function clearStoredMessagesForModel(modelId: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.removeItem(getModelMessagesStorageKey(modelId));
-
-    if (modelId === DEFAULT_LOCAL_MODEL.id) {
-      window.localStorage.removeItem(LEGACY_MASTER_CHAT_STORAGE_KEY);
-    }
-  } catch {
-    // limpeza local indisponivel; nao quebra o chat
-  }
-}
-
-function clearAllStoredMessages() {
+function clearStoredMessages() {
   if (typeof window === "undefined") {
     return;
   }
@@ -169,15 +147,18 @@ function clearAllStoredMessages() {
     for (let index = 0; index < window.localStorage.length; index += 1) {
       const key = window.localStorage.key(index);
 
-      if (key?.startsWith(MASTER_CHAT_STORAGE_PREFIX)) {
+      if (key?.startsWith(LEGACY_MASTER_CHAT_STORAGE_PREFIX)) {
         keysToRemove.push(key);
       }
     }
 
     keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+
+    window.localStorage.removeItem(MASTER_CHAT_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_MASTER_CHAT_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_MASTER_CHAT_SELECTED_MODEL_KEY);
   } catch {
-    // limpeza local indisponivel; nao quebra o chat
+    // limpeza local indisponível; não quebra o chat
   }
 }
 
@@ -191,7 +172,7 @@ const DEFAULT_MASTER_MESSAGES: ChatMessage[] = [
     id: "welcome",
     role: "master",
     text:
-      "ARGOS pronto. O supervisor local verifica se a IA ja esta ativa e permite ligar ou desligar tudo sob comando do usuario.",
+      "ARGOS pronto. O executor online ou local será escolhido automaticamente conforme disponibilidade.",
   },
 ];
 
@@ -209,17 +190,15 @@ function isStoredChatMessage(value: unknown): value is ChatMessage {
   );
 }
 
-function loadStoredMessages(modelId: string): ChatMessage[] {
+function loadStoredMessages(): ChatMessage[] {
   if (typeof window === "undefined") {
     return DEFAULT_MASTER_MESSAGES;
   }
 
   try {
     const raw =
-      window.localStorage.getItem(getModelMessagesStorageKey(modelId)) ||
-      (modelId === DEFAULT_LOCAL_MODEL.id
-        ? window.localStorage.getItem(LEGACY_MASTER_CHAT_STORAGE_KEY)
-        : null);
+      window.localStorage.getItem(MASTER_CHAT_STORAGE_KEY) ||
+      loadLegacyStoredMessagesRaw();
 
     if (!raw) {
       return DEFAULT_MASTER_MESSAGES;
@@ -239,13 +218,20 @@ function loadStoredMessages(modelId: string): ChatMessage[] {
       }))
       .slice(-80);
 
+    if (messages.length) {
+      window.localStorage.setItem(
+        MASTER_CHAT_STORAGE_KEY,
+        JSON.stringify(messages)
+      );
+    }
+
     return messages.length ? messages : DEFAULT_MASTER_MESSAGES;
   } catch {
     return DEFAULT_MASTER_MESSAGES;
   }
 }
 
-function saveStoredMessages(modelId: string, messages: ChatMessage[]) {
+function saveStoredMessages(messages: ChatMessage[]) {
   if (typeof window === "undefined") {
     return;
   }
@@ -256,11 +242,11 @@ function saveStoredMessages(modelId: string, messages: ChatMessage[]) {
       .slice(-80);
 
     window.localStorage.setItem(
-      getModelMessagesStorageKey(modelId),
+      MASTER_CHAT_STORAGE_KEY,
       JSON.stringify(safeMessages)
     );
   } catch {
-    // armazenamento local indisponivel ou cheio; nao quebra o chat
+    // armazenamento local indisponível ou cheio; não quebra o chat
   }
 }
 
@@ -553,8 +539,6 @@ async function resolveToolContextForPrompt(
 }
 
 export function MasterChatHome() {
-  const [selectedModel, setSelectedModel] = useState(() => loadStoredSelectedModel());
-  const [modelsOpen, setModelsOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [activeLoadingId, setActiveLoadingId] = useState<string | null>(null);
@@ -569,14 +553,13 @@ export function MasterChatHome() {
   const abortRef = useRef<AbortController | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    loadStoredMessages(loadStoredSelectedModel())
+    loadStoredMessages()
   );
 
   useEffect(() => {
     refreshSupervisorStatus();
     refreshOpenRouterStatus();
     refreshGeminiStatus();
-    refreshCloudflareImageStatus();
     refreshCloudflareImageStatus();
 
     return () => {
@@ -585,9 +568,8 @@ export function MasterChatHome() {
   }, []);
 
   useEffect(() => {
-    saveStoredSelectedModel(selectedModel);
-    saveStoredMessages(selectedModel, messages);
-  }, [messages, selectedModel]);
+    saveStoredMessages(messages);
+  }, [messages]);
 
   const ollamaModels: ChatModelOption[] = bridgeModels.length
     ? bridgeModels.map((model) => ({
@@ -667,6 +649,17 @@ export function MasterChatHome() {
     ...cloudflareImageChatModels,
   ];
 
+  const onlineAvailable = Boolean(
+    openRouterStatus?.enabled &&
+    openRouterStatus?.keyPresent &&
+    openRouterStatus?.defaultModel
+  );
+
+  const selectedModel =
+    onlineAvailable && openRouterStatus?.defaultModel
+      ? openRouterStatus.defaultModel
+      : DEFAULT_LOCAL_MODEL.id;
+
   const fallbackModel: ChatModelOption =
     models[0] ?? {
       ...DEFAULT_LOCAL_MODEL,
@@ -678,32 +671,12 @@ export function MasterChatHome() {
     [fallbackModel, models, selectedModel]
   );
 
-  function handleModelSelect(modelId: string) {
+  function handleClearChat() {
     if (sending) {
       return;
     }
 
-    setSelectedModel(modelId);
-    saveStoredSelectedModel(modelId);
-    setMessages(loadStoredMessages(modelId));
-    setModelsOpen(false);
-  }
-
-  function handleClearCurrentChat() {
-    if (sending) {
-      return;
-    }
-
-    clearStoredMessagesForModel(selectedModel);
-    setMessages(DEFAULT_MASTER_MESSAGES);
-  }
-
-  function handleClearAllChats() {
-    if (sending) {
-      return;
-    }
-
-    clearAllStoredMessages();
+    clearStoredMessages();
     setMessages(DEFAULT_MASTER_MESSAGES);
   }
 
@@ -1001,7 +974,7 @@ export function MasterChatHome() {
               ? `Consultando ${activeModel.name} via Hermes local...`
             : localAiStatus === "online"
             ? `Consultando ${activeModel.name} via IA local...`
-            : "IA local desligada. Ligando pelo supervisor antes de enviar...",
+            : "Nenhum executor pronto. Verifique o serviço online ou ligue a IA local.",
         status: "loading",
       },
     ]);
@@ -1140,12 +1113,8 @@ export function MasterChatHome() {
       }
 
       if (localAiStatus !== "online") {
-        await startLocalAi(controller.signal);
-        updateLoadingMessage(
-          loadingId,
-          isHermesModel
-            ? `Consultando ${activeModel.name} via Hermes local...`
-            : `Consultando ${activeModel.name} via IA local...`
+        throw new Error(
+          "Nenhum executor disponível. Configure a IA online ou clique em ligar IA local."
         );
       }
 
@@ -1381,121 +1350,6 @@ export function MasterChatHome() {
     return () => observer.disconnect();
   });
 
-  // ARGOS_MODEL_MENU_REAL_SCROLL_FIX
-  useEffect(() => {
-    const DESKTOP_MIN_WIDTH = 769;
-    const TOP_SAFE_MARGIN = 84;
-    const BOTTOM_SAFE_MARGIN = 112;
-
-    const isDesktop = () => window.innerWidth >= DESKTOP_MIN_WIDTH;
-
-    const findModelMenuPanel = () => {
-      const candidates = Array.from(
-        document.querySelectorAll<HTMLElement>("div, aside, section")
-      )
-        .filter((element) => {
-          const text = element.innerText || "";
-          return (
-            text.includes("IA GEMINI / VISUAL") &&
-            text.includes("FLUX.1 Schnell") &&
-            text.includes("Limpar chat")
-          );
-        })
-        .filter((element) => {
-          const rect = element.getBoundingClientRect();
-          return (
-            element !== document.body &&
-            rect.width >= 260 &&
-            rect.width <= 680 &&
-            rect.height >= 240
-          );
-        });
-
-      candidates.sort((a, b) => {
-        const rectA = a.getBoundingClientRect();
-        const rectB = b.getBoundingClientRect();
-        return rectA.width * rectA.height - rectB.width * rectB.height;
-      });
-
-      return candidates[0] || null;
-    };
-
-    const fixModelMenu = () => {
-      const panel = findModelMenuPanel();
-
-      if (!panel) {
-        return;
-      }
-
-      panel.classList.add("argos-model-menu-real-scroll-fix");
-
-      if (!isDesktop()) {
-        panel.style.position = "";
-        panel.style.left = "";
-        panel.style.right = "";
-        panel.style.top = "";
-        panel.style.bottom = "";
-        panel.style.width = "";
-        panel.style.maxHeight = "";
-        panel.style.overflowY = "";
-        return;
-      }
-
-      const currentRect = panel.getBoundingClientRect();
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-      const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-      const targetTop = TOP_SAFE_MARGIN;
-      const targetBottom = BOTTOM_SAFE_MARGIN;
-      const targetHeight = Math.max(320, viewportHeight - targetTop - targetBottom);
-      const targetWidth = Math.min(Math.max(currentRect.width, 360), 520);
-      const targetLeft = Math.min(
-        Math.max(currentRect.left, 8),
-        Math.max(8, viewportWidth - targetWidth - 24)
-      );
-
-      panel.style.position = "fixed";
-      panel.style.left = `${targetLeft}px`;
-      panel.style.right = "auto";
-      panel.style.top = `${targetTop}px`;
-      panel.style.bottom = "auto";
-      panel.style.width = `${targetWidth}px`;
-      panel.style.maxHeight = `${targetHeight}px`;
-      panel.style.overflowY = "auto";
-      panel.style.overflowX = "hidden";
-      panel.style.scrollbarGutter = "stable both-edges";
-      panel.style.overscrollBehavior = "contain";
-      panel.style.zIndex = "80";
-
-      if (panel.dataset.argosModelMenuScrollFixed !== "1") {
-        panel.dataset.argosModelMenuScrollFixed = "1";
-        panel.scrollTop = 0;
-      }
-    };
-
-    const scheduleFix = () => {
-      fixModelMenu();
-      window.setTimeout(fixModelMenu, 30);
-      window.setTimeout(fixModelMenu, 120);
-      window.setTimeout(fixModelMenu, 280);
-    };
-
-    scheduleFix();
-
-    const observer = new MutationObserver(scheduleFix);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    window.addEventListener("click", scheduleFix, true);
-    window.addEventListener("resize", scheduleFix);
-    window.addEventListener("scroll", scheduleFix, true);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("click", scheduleFix, true);
-      window.removeEventListener("resize", scheduleFix);
-      window.removeEventListener("scroll", scheduleFix, true);
-    };
-  }, []);
-
   return (
     <section className="master-chat-home" aria-label="Painel inicial do Mestre">
       <div className="master-chat-center">
@@ -1508,78 +1362,45 @@ export function MasterChatHome() {
         </div>
 
         <div className="master-chat-flags">
+          <span>
+            {onlineAvailable
+              ? "ARGOS online: disponível"
+              : "ARGOS online: indisponível"}
+          </span>
+
           <span className={`local-ai-status local-ai-status-${localAiStatus}`}>
             {statusLabel}
           </span>
 
-          {activeModel.provider === "cloudflare_image" ? (
-            <button
-              type="button"
-              className="local-ai-connect-button"
-              disabled
-              title="FLUX.1 Schnell usa Workers AI no backend Cloudflare e nao precisa ligar Ollama local."
-            >
-              Flux Imagem selecionado
-            </button>
-          ) : activeModel.provider === "gemini" ? (
-            <button
-              type="button"
-              className="local-ai-connect-button"
-              disabled
-              title="Modelo Gemini usa backend Cloudflare e nao precisa ligar Ollama local."
-            >
-              {activeModel.geminiMode === "image_generation"
-                ? "Gemini Imagem selecionado"
-                : "Gemini Prompt selecionado"}
-            </button>
-          ) : activeModel.provider === "openrouter" ? (
-            <button
-              type="button"
-              className="local-ai-connect-button"
-              disabled
-              title="Modelo OpenRouter Free usa backend Cloudflare e nao precisa ligar Ollama local."
-            >
-              API Free selecionada
-            </button>
-          ) : localAiStatus === "online" || localAiStatus === "partial" || localAiStatus === "stopping" ? (
+          {localAiStatus === "online" ||
+          localAiStatus === "partial" ||
+          localAiStatus === "stopping" ? (
             <button
               type="button"
               className="local-ai-connect-button"
               onClick={handleStopLocalAiClick}
               disabled={sending || localAiStatus === "stopping"}
             >
-              {localAiStatus === "stopping" ? "desligando IA local" : "desligar IA local"}
+              {localAiStatus === "stopping"
+                ? "desligando IA local"
+                : "desligar IA local"}
             </button>
           ) : (
             <button
               type="button"
               className="local-ai-connect-button"
               onClick={handleStartLocalAiClick}
-              disabled={sending || localAiStatus === "starting" || localAiStatus === "checking"}
+              disabled={
+                sending ||
+                localAiStatus === "starting" ||
+                localAiStatus === "checking"
+              }
             >
-              {localAiStatus === "starting" ? "ligando IA local" : "ligar IA local"}
+              {localAiStatus === "starting"
+                ? "ligando IA local"
+                : "ligar IA local"}
             </button>
           )}
-
-          <span>Ollama sob demanda</span>
-          <span>
-            {openRouterStatus?.enabled && openRouterStatus?.keyPresent
-              ? "OpenRouter Free: online"
-              : "OpenRouter Free: indisponivel"}
-          </span>
-          <span>
-            {geminiStatus?.enabled && geminiStatus?.keyPresent
-              ? "Gemini Visual: online"
-              : "Gemini Visual: indisponivel"}
-          </span>
-          <span>
-            {cloudflareImageStatus?.bindingPresent
-              ? "Cloudflare Flux: online"
-              : "Cloudflare Flux: indisponivel"}
-          </span>
-          <span>Gemini = prompt / Flux = imagem</span>
-          <span>API paga bloqueada</span>
-          <span>Executor bloqueado</span>
         </div>
       </div>
 
@@ -1609,21 +1430,9 @@ export function MasterChatHome() {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={
-            activeModel.provider === "cloudflare_image"
-              ? "Descreva a imagem final para gerar no FLUX.1 Schnell..."
-              : activeModel.provider === "gemini"
-                ? activeModel.geminiMode === "image_generation"
-                  ? "Descreva a imagem final para gerar no Gemini 2.5 Flash Image..."
-                  : "Peça um prompt, JSON, roteiro ou comando para imagem/vídeo..."
-                : activeModel.provider === "openrouter"
-                  ? `Mensagem para ${activeModel.name} via OpenRouter Free...`
-                : activeModel.id === HERMES_LOCAL_MODEL_ID
-                  ? "Mensagem para Hermes Agent local..."
-                : localAiStatus === "online"
-                ? `Mensagem para ${activeModel.name}...`
-                : localAiStatus === "partial"
-                  ? "Serviço local parcial ativo. Clique em Ligar IA local para completar ou Desligar IA local para encerrar."
-                  : "IA local desligada. Clique em Ligar IA local para usar o chat."
+            localAiStatus === "partial"
+              ? "Serviço local parcialmente ativo. Use o controle acima para completar ou desligar."
+              : "Converse com o ARGOS. O executor será escolhido automaticamente."
           }
           rows={3}
           maxLength={2000}
@@ -1631,209 +1440,14 @@ export function MasterChatHome() {
         />
 
         <div className="master-chat-toolbar">
-          <div className="model-picker-wrap">
-            <button
-              type="button"
-              className="model-add-button"
-              onClick={() => setModelsOpen((value) => !value)}
-              aria-label="Adicionar ou listar modelos locais"
-              title="Listar modelos locais"
-              disabled={sending}
-            >
-              +
-            </button>
-
-            {modelsOpen ? (
-              <div className="model-popover">
-                <div className="model-popover-head">
-                  <strong>Modelos permitidos</strong>
-                  <small>Local Ollama/Hermes + OpenRouter Free aprovado</small>
-                </div>
-
-                <div className="model-list">
-                  {localModels.length ? (
-                    <>
-                      <div className="model-section-label">IA LOCAL / OLLAMA</div>
-
-                      {localModels.map((model) => (
-                        <button
-                          key={model.id}
-                          type="button"
-                          className={
-                            model.id === selectedModel
-                              ? "model-option model-option-active"
-                              : "model-option"
-                          }
-                          onClick={() => handleModelSelect(model.id)}
-                          disabled={sending}
-                        >
-                          <span className="model-option-main">
-                            <strong>{model.name}</strong>
-                            <small>{model.endpoint}</small>
-                          </span>
-
-                          <span className="model-chip model-chip-preferred">LOCAL</span>
-
-                          <span className={`model-chip model-chip-${model.status}`}>
-                            {model.size}
-                          </span>
-
-                          <em>{model.role}</em>
-                        </button>
-                      ))}
-                    </>
-                  ) : null}
-
-                  {cloudModels.length ? (
-                    <>
-                      <div className="model-section-label">IA API FREE / OPENROUTER</div>
-
-                      {cloudModels.map((model) => (
-                        <button
-                          key={model.id}
-                          type="button"
-                          className={
-                            model.id === selectedModel
-                              ? "model-option model-option-active"
-                              : "model-option"
-                          }
-                          onClick={() => handleModelSelect(model.id)}
-                          disabled={sending}
-                        >
-                          <span className="model-option-main">
-                            <strong>{model.name}</strong>
-                            <small>{model.endpoint}</small>
-                          </span>
-
-                          <span className="model-chip model-chip-preferred">API FREE</span>
-
-                          <span className={`model-chip model-chip-${model.status}`}>
-                            {model.size}
-                          </span>
-
-                          <em>{model.role}</em>
-                        </button>
-                      ))}
-                    </>
-                  ) : (
-                    <div className="model-section-label">
-                      IA API FREE indisponivel ou bloqueada pelo backend
-                    </div>
-                  )}
-                </div>
-
-                  {geminiChatModels.length ? (
-                    <>
-                      <div className="model-section-label">IA GEMINI / VISUAL</div>
-
-                      {geminiChatModels.map((model) => (
-                        <button
-                          key={model.id}
-                          type="button"
-                          className={
-                            model.id === selectedModel
-                              ? "model-option model-option-active"
-                              : "model-option"
-                          }
-                          onClick={() => handleModelSelect(model.id)}
-                          disabled={sending}
-                        >
-                          <span className="model-option-main">
-                            <strong>{model.name}</strong>
-                            <small>{model.endpoint}</small>
-                          </span>
-
-                          <span className="model-chip model-chip-preferred">
-                            {model.geminiMode === "image_generation" ? "USAR PARA IMAGEM" : "USAR PARA PROMPT"}
-                          </span>
-
-                          <span className={`model-chip model-chip-${model.status}`}>
-                            {model.size}
-                          </span>
-
-                          <em>{model.role}</em>
-                        </button>
-                      ))}
-                    </>
-                  ) : null}
-
-                  {cloudflareImageChatModels.length ? (
-                    <>
-                      <div className="model-section-label">IA IMAGEM / CLOUDFLARE FREE</div>
-
-                      {cloudflareImageChatModels.map((model) => (
-                        <button
-                          key={model.id}
-                          type="button"
-                          className={
-                            model.id === selectedModel
-                              ? "model-option model-option-active"
-                              : "model-option"
-                          }
-                          onClick={() => handleModelSelect(model.id)}
-                          disabled={sending}
-                        >
-                          <span className="model-option-main">
-                            <strong>{model.name}</strong>
-                            <small>{model.endpoint}</small>
-                          </span>
-
-                          <span className="model-chip model-chip-preferred">
-                            USAR PARA IMAGEM
-                          </span>
-
-                          <span className={`model-chip model-chip-${model.status}`}>
-                            {model.size}
-                          </span>
-
-                          <em>{model.role}</em>
-                        </button>
-                      ))}
-                    </>
-                  ) : null}
-
-                <div className="model-clean-actions">
-                  <button
-                    type="button"
-                    className="model-add-future"
-                    onClick={handleClearCurrentChat}
-                    disabled={sending}
-                  >
-                    Limpar chat deste modelo
-                  </button>
-
-                  <button
-                    type="button"
-                    className="model-add-future"
-                    onClick={handleClearAllChats}
-                    disabled={sending}
-                  >
-                    Limpar todos os chats
-                  </button>
-                </div>
-
-                <button type="button" className="model-add-future" disabled>
-                  Somente modelos locais ou free aprovados
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="selected-model-pill">
-            <span>
-              {activeModel.provider === "openrouter"
-                ? "API FREE"
-                : activeModel.provider === "gemini"
-                  ? activeModel.geminiMode === "image_generation"
-                    ? "GEMINI IMAGEM"
-                    : "GEMINI PROMPT"
-                  : activeModel.provider === "cloudflare_image"
-                    ? "FLUX IMAGEM"
-                    : "LOCAL"}{" "}
-              · {activeModel.name}
-            </span>
-            <small>{activeModel.endpoint}</small>
-          </div>
+          <button
+            type="button"
+            className="local-ai-connect-button"
+            onClick={handleClearChat}
+            disabled={sending}
+          >
+            limpar conversa
+          </button>
 
           <div className="chat-mode-toggle" aria-label="Modo do chat">
             <span>Agent</span>
@@ -1845,7 +1459,7 @@ export function MasterChatHome() {
             className={sending ? "chat-send-button chat-send-button-cancel" : "chat-send-button"}
             onClick={handleSubmit}
             disabled={!sending && !draft.trim()}
-            title={sending ? "Cancelar consulta" : "Enviar para modelo selecionado"}
+            title={sending ? "Cancelar consulta" : "Enviar para o ARGOS"}
           >
             {sending ? "×" : "↑"}
           </button>
