@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import argosHero from "../assets/argos-centurion.png";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
@@ -18,6 +18,38 @@ type ChatMessage = {
   imageBase64?: string;
   imageMimeType?: string;
 };
+
+type PendingAttachment = {
+  id: string;
+  file: File;
+};
+
+const ACCEPTED_ATTACHMENT_EXTENSIONS = [
+  ".txt",
+  ".md",
+  ".json",
+  ".csv",
+  ".pdf",
+  ".docx",
+  ".xlsx",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".zip",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".py",
+  ".html",
+  ".css",
+  ".sql",
+  ".ps1",
+].join(",");
+
+const MAX_ATTACHMENT_FILES = 5;
+const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
 
 type LocalAiStatus = "checking" | "off" | "partial" | "starting" | "online" | "stopping" | "error";
 
@@ -47,7 +79,37 @@ type SupervisorStatusPayload = {
 };
 
 function createId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return Date.now() + "-" + Math.random().toString(36).slice(2);
+}
+
+function getFileExtension(fileName: string) {
+  const lastDot = fileName.lastIndexOf(".");
+
+  if (lastDot < 0) {
+    return "";
+  }
+
+  return fileName.slice(lastDot).toLowerCase();
+}
+
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes < 1024) {
+    return sizeBytes + " B";
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return (sizeBytes / 1024).toFixed(1) + " KB";
+  }
+
+  return (sizeBytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function isAcceptedAttachment(file: File) {
+  const extension = getFileExtension(file.name);
+
+  return ACCEPTED_ATTACHMENT_EXTENSIONS
+    .split(",")
+    .includes(extension);
 }
 
 function loadLegacyStoredMessagesRaw(): string | null {
@@ -473,7 +535,10 @@ export function MasterChatHome() {
   const [activeLoadingId, setActiveLoadingId] = useState<string | null>(null);
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus>("checking");
   const [onlineAiStatus, setOnlineAiStatus] = useState<OnlineAiStatus>("checking");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentNotice, setAttachmentNotice] = useState("");
   const abortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     loadStoredMessages()
@@ -499,6 +564,113 @@ export function MasterChatHome() {
 
     clearStoredMessages();
     setMessages(DEFAULT_MASTER_MESSAGES);
+    setAttachments([]);
+    setAttachmentNotice("");
+  }
+
+  function handleOpenAttachmentPicker() {
+    if (sending) {
+      return;
+    }
+
+    fileInputRef.current?.click();
+  }
+
+  function handleAttachmentChange(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const selectedFiles = Array.from(
+      event.target.files || []
+    );
+
+    event.target.value = "";
+
+    if (!selectedFiles.length) {
+      return;
+    }
+
+    const rejectedMessages: string[] = [];
+
+    const knownFiles = new Set(
+      attachments.map((attachment) =>
+        [
+          attachment.file.name,
+          attachment.file.size,
+          attachment.file.lastModified,
+        ].join(":")
+      )
+    );
+
+    const additions: PendingAttachment[] = [];
+
+    for (const file of selectedFiles) {
+      if (!isAcceptedAttachment(file)) {
+        rejectedMessages.push(
+          file.name + ": formato não aceito"
+        );
+        continue;
+      }
+
+      if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+        rejectedMessages.push(
+          file.name + ": excede 25 MB"
+        );
+        continue;
+      }
+
+      const signature = [
+        file.name,
+        file.size,
+        file.lastModified,
+      ].join(":");
+
+      if (knownFiles.has(signature)) {
+        rejectedMessages.push(
+          file.name + ": já foi selecionado"
+        );
+        continue;
+      }
+
+      if (
+        attachments.length + additions.length >=
+        MAX_ATTACHMENT_FILES
+      ) {
+        rejectedMessages.push(
+          file.name + ": limite de 5 arquivos atingido"
+        );
+        continue;
+      }
+
+      knownFiles.add(signature);
+
+      additions.push({
+        id: createId(),
+        file,
+      });
+    }
+
+    if (additions.length) {
+      setAttachments((current) => [
+        ...current,
+        ...additions,
+      ]);
+    }
+
+    setAttachmentNotice(
+      rejectedMessages.length
+        ? rejectedMessages.join(" · ")
+        : "Arquivos selecionados. O envio ao ARGOS será conectado no próximo passo."
+    );
+  }
+
+  function handleRemoveAttachment(id: string) {
+    setAttachments((current) =>
+      current.filter(
+        (attachment) => attachment.id !== id
+      )
+    );
+
+    setAttachmentNotice("");
   }
 
   function updateLoadingMessage(
@@ -1163,6 +1335,95 @@ export function MasterChatHome() {
       </div>
 
       <div className="master-chat-composer" aria-label="Caixa de dialogo do Mestre">
+        <div className="master-attachment-controls">
+          <input
+            ref={fileInputRef}
+            className="master-attachment-input"
+            type="file"
+            multiple
+            accept={ACCEPTED_ATTACHMENT_EXTENSIONS}
+            onChange={handleAttachmentChange}
+            disabled={sending}
+            aria-label="Selecionar arquivos para o ARGOS"
+          />
+
+          <button
+            type="button"
+            className="master-attachment-button"
+            onClick={handleOpenAttachmentPicker}
+            disabled={
+              sending ||
+              attachments.length >= MAX_ATTACHMENT_FILES
+            }
+          >
+            Enviar arquivo
+          </button>
+
+          <p className="master-attachment-help">
+            Formatos aceitos: PDF, DOCX, XLSX, CSV, TXT,
+            Markdown, JSON, imagens, arquivos de código e
+            ZIP. Até 5 arquivos de 25 MB cada.
+          </p>
+        </div>
+
+        {attachments.length ? (
+          <div
+            className="master-attachment-list"
+            aria-label="Arquivos selecionados"
+          >
+            {attachments.map((attachment) => (
+              <article
+                className="master-attachment-item"
+                key={attachment.id}
+              >
+                <div>
+                  <strong>
+                    {attachment.file.name}
+                  </strong>
+
+                  <span>
+                    {getFileExtension(
+                      attachment.file.name
+                    )
+                      .replace(".", "")
+                      .toUpperCase() || "ARQUIVO"}
+                    {" · "}
+                    {formatFileSize(
+                      attachment.file.size
+                    )}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleRemoveAttachment(
+                      attachment.id
+                    )
+                  }
+                  disabled={sending}
+                  aria-label={
+                    "Remover " +
+                    attachment.file.name
+                  }
+                  title="Remover arquivo"
+                >
+                  ×
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : null}
+
+        {attachmentNotice ? (
+          <p
+            className="master-attachment-notice"
+            role="status"
+          >
+            {attachmentNotice}
+          </p>
+        ) : null}
+
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

@@ -748,6 +748,125 @@
   padding: 10px;
 }
 
+.master-attachment-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.2rem 0.25rem 0.65rem;
+}
+
+.master-attachment-input {
+  display: none;
+}
+
+.master-attachment-button {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--accent) 46%,
+    var(--border)
+  );
+  background: color-mix(
+    in srgb,
+    var(--accent) 9%,
+    transparent
+  );
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 0.44rem 0.78rem;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.master-attachment-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.master-attachment-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.master-attachment-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.master-attachment-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 0.55rem;
+}
+
+.master-attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--border) 78%,
+    transparent
+  );
+  border-radius: 0.8rem;
+  background: color-mix(
+    in srgb,
+    var(--panel) 76%,
+    transparent
+  );
+  padding: 0.52rem 0.62rem;
+}
+
+.master-attachment-item div {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.master-attachment-item strong {
+  color: var(--fg);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-attachment-item span {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.master-attachment-item button {
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 1.8rem;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--red) 45%,
+    var(--border)
+  );
+  border-radius: 50%;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+}
+
+.master-attachment-item button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.master-attachment-notice {
+  margin: 0 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.69rem;
+  line-height: 1.35;
+}
+
 .master-chat-composer textarea {
   width: 100%;
   resize: none;
@@ -1496,3 +1615,19 @@
   }
 }
 
+
+
+@media (max-width: 760px) {
+  .master-attachment-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .master-attachment-button {
+    width: 100%;
+  }
+
+  .master-attachment-help {
+    font-size: 0.68rem;
+  }
+}
