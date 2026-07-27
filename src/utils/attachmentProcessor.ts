@@ -1,4 +1,7 @@
 ﻿import { strFromU8, unzipSync } from "fflate";
+import { readPdfAttachmentText } from "./pdfAttachmentReader";
+import { readDocxAttachmentText } from "./docxAttachmentReader";
+import { readXlsxAttachmentText } from "./xlsxAttachmentReader";
 
 const MAX_ATTACHMENT_CONTEXT_CHARACTERS = 32000;
 const MAX_DIRECT_TEXT_CHARACTERS = 16000;
@@ -26,9 +29,6 @@ const DIRECT_TEXT_EXTENSIONS = new Set([
 ]);
 
 const DEFERRED_EXTENSIONS = new Set([
-  ".pdf",
-  ".docx",
-  ".xlsx",
   ".png",
   ".jpg",
   ".jpeg",
@@ -115,11 +115,11 @@ function isUnsafeArchivePath(fileName: string) {
 }
 
 function decodeUtf8(bytes: Uint8Array) {
-  return strFromU8(bytes).replace(/\u0000/g, "");
+  return strFromU8(bytes).split(String.fromCharCode(0)).join("");
 }
 
 async function readDirectTextAttachment(file: File) {
-  const rawText = (await file.text()).replace(/\u0000/g, "");
+  const rawText = (await file.text()).split(String.fromCharCode(0)).join("");
 
   const result = truncateText(
     rawText,
@@ -296,7 +296,8 @@ async function readZipAttachment(file: File) {
           error instanceof Error
             ? error.message
             : "ZIP inválido ou não suportado."
-        )
+        ),
+      { cause: error }
     );
   }
 
@@ -394,6 +395,81 @@ export async function processAttachmentsForPrompt(
       continue;
     }
 
+    if (extension === ".pdf") {
+      const pdfResult =
+        await readPdfAttachmentText(file);
+
+      sections.push(
+        [
+          "### ARQUIVO PDF: " + file.name,
+          "Tamanho: " + formatFileSize(file.size),
+          "Páginas totais: " +
+            pdfResult.totalPages,
+          "Páginas processadas: " +
+            pdfResult.processedPages,
+          pdfResult.truncated
+            ? "Observação: conteúdo limitado pelos limites de segurança do ARGOS."
+            : "Observação: conteúdo dentro dos limites de leitura.",
+          pdfResult.hasSelectableText
+            ? "Detecção: texto selecionável extraído com PDF.js."
+            : "Detecção: nenhum texto selecionável suficiente foi encontrado. PDFs escaneados exigirão análise visual.",
+          "",
+          pdfResult.extractedText ||
+            "[Nenhum texto selecionável foi encontrado neste PDF]",
+        ].join("\n")
+      );
+
+      continue;
+    }
+    if (extension === ".docx") {
+      const docxResult =
+        await readDocxAttachmentText(file);
+
+      sections.push(
+        [
+          "### ARQUIVO DOCX: " + file.name,
+          "Tamanho: " + formatFileSize(file.size),
+          docxResult.truncated
+            ? "Observacao: conteudo limitado pelos limites de seguranca do ARGOS."
+            : "Observacao: conteudo dentro dos limites de leitura.",
+          docxResult.hasText
+            ? "Deteccao: texto extraido com Mammoth."
+            : "Deteccao: nenhum texto suficiente foi encontrado no documento.",
+          docxResult.warnings.length
+            ? "Avisos do leitor: " + docxResult.warnings.join(" | ")
+            : "Avisos do leitor: nenhum.",
+          "",
+          docxResult.extractedText ||
+            "[Nenhum texto foi encontrado neste DOCX]",
+        ].join("\n")
+      );
+
+      continue;
+    }
+    if (extension === ".xlsx") {
+      const xlsxResult =
+        await readXlsxAttachmentText(file);
+
+      sections.push(
+        [
+          "### ARQUIVO XLSX: " + file.name,
+          "Tamanho: " + formatFileSize(file.size),
+          "Linhas encontradas: " + xlsxResult.rowCount,
+          "Colunas encontradas: " + xlsxResult.columnCount,
+          xlsxResult.truncated
+            ? "Observacao: planilha limitada pelos limites de seguranca do ARGOS."
+            : "Observacao: planilha dentro dos limites de leitura.",
+          xlsxResult.hasData
+            ? "Deteccao: dados extraidos da planilha."
+            : "Deteccao: nenhuma celula preenchida foi encontrada.",
+          "",
+          xlsxResult.extractedText ||
+            "[Nenhum dado foi encontrado neste XLSX]",
+        ].join("\n")
+      );
+
+      continue;
+    }
     if (DEFERRED_EXTENSIONS.has(extension)) {
       deferredFiles.push(file.name);
       continue;
@@ -406,7 +482,7 @@ export async function processAttachmentsForPrompt(
     throw new Error(
       "Os arquivos selecionados ainda não possuem leitor ativo neste passo: " +
         deferredFiles.join(", ") +
-        ". A leitura de PDF, DOCX, XLSX e imagens será conectada no próximo passo."
+        ". A leitura de imagens sera conectada em etapa posterior."
     );
   }
 

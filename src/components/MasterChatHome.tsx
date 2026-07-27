@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import argosHero from "../assets/argos-centurion.png";
+import { processAttachmentsForPrompt } from "../utils/attachmentProcessor";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
@@ -659,7 +660,7 @@ export function MasterChatHome() {
     setAttachmentNotice(
       rejectedMessages.length
         ? rejectedMessages.join(" · ")
-        : "Arquivos selecionados. O envio ao ARGOS será conectado no próximo passo."
+        : "Arquivos prontos para processamento pelo ARGOS."
     );
   }
 
@@ -881,18 +882,30 @@ export function MasterChatHome() {
     }
 
     const value = draft.trim();
+    const attachmentsForRequest = [...attachments];
 
-    if (!value) {
+    if (!value && !attachmentsForRequest.length) {
       return;
     }
 
-    const promptWithContext =
-      buildPromptWithConversationContext(value, messages);
+    const userRequest =
+      value || "Analise os arquivos anexados.";
+
+    const userMessageText = attachmentsForRequest.length
+      ? [
+          userRequest,
+          "",
+          "Anexos: " +
+            attachmentsForRequest
+              .map((attachment) => attachment.file.name)
+              .join(", "),
+        ].join("\n")
+      : userRequest;
 
     const userMessage: ChatMessage = {
       id: createId(),
       role: "user",
-      text: value,
+      text: userMessageText,
     };
 
     const loadingId = createId();
@@ -927,10 +940,38 @@ export function MasterChatHome() {
     setActiveLoadingId(loadingId);
 
     try {
-      const toolContext = await resolveToolContextForPrompt(
-        value,
-        controller.signal
-      );
+      let promptInput = userRequest;
+
+      if (attachmentsForRequest.length) {
+        updateLoadingMessage(
+          loadingId,
+          "Lendo e preparando os anexos..."
+        );
+
+        const attachmentResult =
+          await processAttachmentsForPrompt(
+            attachmentsForRequest
+          );
+
+        promptInput = [
+          userRequest,
+          attachmentResult.promptContext,
+        ].join("\n\n");
+      }
+
+      const promptWithContext =
+        buildPromptWithConversationContext(
+          promptInput,
+          messages
+        );
+
+      const toolContext =
+        !attachmentsForRequest.length && value
+          ? await resolveToolContextForPrompt(
+              value,
+              controller.signal
+            )
+          : null;
 
       if (toolContext) {
         const directToolResponse =
@@ -1021,6 +1062,8 @@ export function MasterChatHome() {
           )
         );
 
+        setAttachments([]);
+        setAttachmentNotice("");
         return;
       }
 
@@ -1080,6 +1123,8 @@ export function MasterChatHome() {
             : message
         )
       );
+      setAttachments([]);
+      setAttachmentNotice("");
     } catch (error) {
       const cancelled =
         error instanceof DOMException &&
