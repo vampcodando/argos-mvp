@@ -45,6 +45,126 @@ function normalizeOcrText(value: string) {
     .trim();
 }
 
+function createOcrDetailCanvas(
+  source: HTMLCanvasElement
+) {
+  const dimensionScale =
+    MAX_IMAGE_DIMENSION /
+    Math.max(source.width, source.height);
+
+  const pixelScale = Math.sqrt(
+    MAX_IMAGE_PIXELS /
+      (source.width * source.height)
+  );
+
+  const scale = Math.min(
+    2,
+    dimensionScale,
+    pixelScale
+  );
+
+  if (scale <= 1.05) {
+    return source;
+  }
+
+  const canvas =
+    document.createElement("canvas");
+
+  canvas.width = Math.max(
+    1,
+    Math.round(source.width * scale)
+  );
+
+  canvas.height = Math.max(
+    1,
+    Math.round(source.height * scale)
+  );
+
+  const context = canvas.getContext(
+    "2d",
+    {
+      alpha: false,
+      willReadFrequently: false,
+    }
+  );
+
+  if (!context) {
+    return source;
+  }
+
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+
+  context.drawImage(
+    source,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  return canvas;
+}
+
+function normalizeComparableOcrLine(
+  value: string
+) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function mergeOcrPasses(
+  primaryText: string,
+  sparseText: string
+) {
+  const sections: string[] = [];
+  const primaryKeys = new Set<string>();
+
+  if (primaryText) {
+    sections.push(
+      "[Leitura OCR principal]\n" +
+        primaryText
+    );
+
+    for (
+      const line of primaryText.split("\n")
+    ) {
+      const comparable =
+        normalizeComparableOcrLine(line);
+
+      if (comparable) {
+        primaryKeys.add(comparable);
+      }
+    }
+  }
+
+  const complementaryLines =
+    sparseText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => {
+        const comparable =
+          normalizeComparableOcrLine(line);
+
+        return (
+          comparable.length > 0 &&
+          !primaryKeys.has(comparable)
+        );
+      });
+
+  if (complementaryLines.length) {
+    sections.push(
+      "[Leitura OCR complementar para textos dispersos]\n" +
+        complementaryLines.join("\n")
+    );
+  }
+
+  return sections.join("\n\n");
+}
+
 function getOcrAssetUrl(path: string) {
   const baseUrl =
     import.meta.env.BASE_URL.endsWith("/")
@@ -247,7 +367,7 @@ function validateImageFile(file: File) {
 
 export async function createImageOcrSession():
 Promise<ImageOcrSession> {
-  const { createWorker, OEM } =
+  const { createWorker, OEM, PSM } =
     await import("tesseract.js");
 
   const workerPath = getOcrAssetUrl(
@@ -292,7 +412,20 @@ Promise<ImageOcrSession> {
         const prepared =
           await prepareImageCanvas(file);
 
-        const recognition =
+        const detailCanvas =
+          createOcrDetailCanvas(
+            prepared.canvas
+          );
+
+        await worker.setParameters({
+          tessedit_pageseg_mode:
+            PSM.AUTO,
+          preserve_interword_spaces:
+            "1",
+          user_defined_dpi: "300",
+        });
+
+        const primaryRecognition =
           await worker.recognize(
             prepared.canvas,
             {
@@ -300,10 +433,60 @@ Promise<ImageOcrSession> {
             }
           );
 
-        const normalizedText =
-          normalizeOcrText(
-            recognition.data.text
+        await worker.setParameters({
+          tessedit_pageseg_mode:
+            PSM.SPARSE_TEXT,
+          preserve_interword_spaces:
+            "1",
+          user_defined_dpi: "300",
+        });
+
+        const sparseRecognition =
+          await worker.recognize(
+            detailCanvas,
+            {
+              rotateAuto: true,
+            }
           );
+
+        const primaryText =
+          normalizeOcrText(
+            primaryRecognition.data.text
+          );
+
+        const sparseText =
+          normalizeOcrText(
+            sparseRecognition.data.text
+          );
+
+        const normalizedText =
+          mergeOcrPasses(
+            primaryText,
+            sparseText
+          );
+
+        const recognizedCharacterCount =
+          (primaryText + sparseText)
+            .replace(/\s/g, "")
+            .length;
+
+        const confidenceCandidates = [
+          primaryRecognition.data.confidence,
+          sparseRecognition.data.confidence,
+        ].filter(Number.isFinite);
+
+        const confidence =
+          confidenceCandidates.length
+            ? Math.max(
+                0,
+                Math.min(
+                  100,
+                  Math.max(
+                    ...confidenceCandidates
+                  )
+                )
+              )
+            : 0;
 
         const truncated =
           normalizedText.length >
@@ -331,22 +514,9 @@ Promise<ImageOcrSession> {
           processedHeight:
             prepared.processedHeight,
           extractedText,
-          confidence:
-            Number.isFinite(
-              recognition.data.confidence
-            )
-              ? Math.max(
-                  0,
-                  Math.min(
-                    100,
-                    recognition.data.confidence
-                  )
-                )
-              : 0,
+          confidence,
           hasText:
-            extractedText
-              .replace(/\s/g, "")
-              .length >=
+            recognizedCharacterCount >=
             MIN_TEXT_CHARACTERS,
           resized: prepared.resized,
           truncated,

@@ -488,6 +488,10 @@ export async function processAttachmentsForPrompt(
           "### ARQUIVO DE IMAGEM: " + file.name,
           "Tamanho: " + formatFileSize(file.size),
           "Tipo: " + imageResult.mimeType,
+          "Origem: imagem real anexada pelo usuário e processada localmente pelo ARGOS.",
+          "Representação enviada ao executor: transcrição OCR obtida do anexo real; o executor não recebe os pixels originais.",
+          "Regra de resposta: trate o OCR abaixo como conteúdo do anexo real e não afirme que a imagem não foi fornecida.",
+          "Regra de precisão: as leituras principal e complementar podem divergir; não invente caracteres e sinalize qualquer incerteza.",
           "Dimensões originais: " +
             imageResult.originalWidth +
             " x " +
