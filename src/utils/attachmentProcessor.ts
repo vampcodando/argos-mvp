@@ -2,6 +2,10 @@
 import { readPdfAttachmentText } from "./pdfAttachmentReader";
 import { readDocxAttachmentText } from "./docxAttachmentReader";
 import { readXlsxAttachmentText } from "./xlsxAttachmentReader";
+import {
+  createImageOcrSession,
+  type ImageOcrSession,
+} from "./imageAttachmentReader";
 
 const MAX_ATTACHMENT_CONTEXT_CHARACTERS = 32000;
 const MAX_DIRECT_TEXT_CHARACTERS = 16000;
@@ -28,7 +32,7 @@ const DIRECT_TEXT_EXTENSIONS = new Set([
   ".ps1",
 ]);
 
-const DEFERRED_EXTENSIONS = new Set([
+const IMAGE_EXTENSIONS = new Set([
   ".png",
   ".jpg",
   ".jpeg",
@@ -370,8 +374,10 @@ export async function processAttachmentsForPrompt(
 ): Promise<AttachmentProcessingResult> {
   const sections: string[] = [];
   const deferredFiles: string[] = [];
+  let imageOcrSession: ImageOcrSession | null = null;
 
-  for (const attachment of pendingAttachments) {
+  try {
+    for (const attachment of pendingAttachments) {
     const file = attachment.file;
 
     const extension =
@@ -470,19 +476,61 @@ export async function processAttachmentsForPrompt(
 
       continue;
     }
-    if (DEFERRED_EXTENSIONS.has(extension)) {
-      deferredFiles.push(file.name);
+    if (IMAGE_EXTENSIONS.has(extension)) {
+      imageOcrSession ??=
+        await createImageOcrSession();
+
+      const imageResult =
+        await imageOcrSession.read(file);
+
+      sections.push(
+        [
+          "### ARQUIVO DE IMAGEM: " + file.name,
+          "Tamanho: " + formatFileSize(file.size),
+          "Tipo: " + imageResult.mimeType,
+          "Dimensões originais: " +
+            imageResult.originalWidth +
+            " x " +
+            imageResult.originalHeight +
+            " px",
+          "Dimensões processadas: " +
+            imageResult.processedWidth +
+            " x " +
+            imageResult.processedHeight +
+            " px",
+          imageResult.resized
+            ? "Redimensionamento: aplicado para proteger memória e desempenho."
+            : "Redimensionamento: não necessário.",
+          "Confiança OCR: " +
+            imageResult.confidence.toFixed(1) +
+            "%",
+          imageResult.truncated
+            ? "Observação: texto OCR limitado pelos limites de segurança do ARGOS."
+            : "Observação: texto OCR dentro dos limites de leitura.",
+          imageResult.hasText
+            ? "Detecção: texto reconhecido localmente com Tesseract.js."
+            : "Detecção: nenhum texto suficiente foi reconhecido. O ARGOS não deve inventar uma descrição visual.",
+          "",
+          imageResult.extractedText ||
+            "[Nenhum texto foi reconhecido nesta imagem]",
+        ].join("\n")
+      );
+
       continue;
     }
 
-    deferredFiles.push(file.name);
+      deferredFiles.push(file.name);
+    }
+  }
+  finally {
+    await imageOcrSession?.terminate();
   }
 
   if (!sections.length) {
     throw new Error(
-      "Os arquivos selecionados ainda não possuem leitor ativo neste passo: " +
+      "Os arquivos selecionados não possuem leitor ativo: " +
         deferredFiles.join(", ") +
-        ". A leitura de imagens sera conectada em etapa posterior."
+        "."
     );
   }
 
