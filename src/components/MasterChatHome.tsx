@@ -51,6 +51,41 @@ const ACCEPTED_ATTACHMENT_EXTENSIONS = [
 
 const MAX_ATTACHMENT_FILES = 5;
 const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
+const MAX_CLOUD_IMAGE_FILES = 3;
+const MAX_DIRECT_CLOUD_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_CLOUD_IMAGE_DIMENSION = 1800;
+const CLOUD_IMAGE_JPEG_QUALITY = 0.9;
+
+const CLOUD_IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+]);
+
+type OnlineTextPart = {
+  type: "text";
+  text: string;
+};
+
+type OnlineImagePart = {
+  type: "image_url";
+  image_url: {
+    url: string;
+  };
+};
+
+type OnlineMessage = {
+  role: "system" | "user" | "assistant";
+  content: string | Array<OnlineTextPart | OnlineImagePart>;
+};
+
+type PreparedCloudImage = {
+  fileName: string;
+  mimeType: "image/jpeg" | "image/png";
+  dataUrl: string;
+  originalBytes: number;
+};
 
 type LocalAiStatus = "checking" | "off" | "partial" | "starting" | "online" | "stopping" | "error";
 
@@ -59,12 +94,11 @@ type OnlineAiStatus = "checking" | "online" | "off" | "error";
 type OnlineGatewayStatusPayload = {
   ok: boolean;
   ready: boolean;
-  enabled: boolean;
   keyPresent: boolean;
-  baseConfigured: boolean;
-  modelConfigured: boolean;
-  provider?: string;
-  model?: string;
+  routingMode?: string;
+  textModel?: string;
+  fastTextModel?: string;
+  visionModel?: string;
 };
 
 type SupervisorStatusPayload = {
@@ -111,6 +145,222 @@ function isAcceptedAttachment(file: File) {
   return ACCEPTED_ATTACHMENT_EXTENSIONS
     .split(",")
     .includes(extension);
+}
+
+function isCloudImageAttachment(file: File) {
+  return CLOUD_IMAGE_EXTENSIONS.has(
+    getFileExtension(file.name)
+  );
+}
+
+function readFileAsDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Não foi possível converter a imagem para envio."));
+    };
+
+    reader.onerror = () => {
+      reject(
+        reader.error ||
+          new Error("Falha ao ler a imagem selecionada.")
+      );
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageElement(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(
+        new Error(
+          `O navegador não conseguiu preparar a imagem ${file.name}.`
+        )
+      );
+    };
+
+    image.src = objectUrl;
+  });
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  mimeType: string,
+  quality?: number
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+
+        reject(new Error("Não foi possível compactar a imagem."));
+      },
+      mimeType,
+      quality
+    );
+  });
+}
+
+async function prepareCloudImage(
+  file: File
+): Promise<PreparedCloudImage> {
+  const extension = getFileExtension(file.name);
+  const directMimeType =
+    file.type === "image/png" || extension === ".png"
+      ? "image/png"
+      : "image/jpeg";
+
+  const canSendDirectly =
+    extension !== ".webp" &&
+    file.size <= MAX_DIRECT_CLOUD_IMAGE_BYTES;
+
+  if (canSendDirectly) {
+    return {
+      fileName: file.name,
+      mimeType: directMimeType,
+      dataUrl: await readFileAsDataUrl(file),
+      originalBytes: file.size,
+    };
+  }
+
+  const image = await loadImageElement(file);
+  const largestDimension = Math.max(
+    image.naturalWidth,
+    image.naturalHeight
+  );
+  const scale = Math.min(
+    1,
+    MAX_CLOUD_IMAGE_DIMENSION / largestDimension
+  );
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(
+    1,
+    Math.round(image.naturalWidth * scale)
+  );
+  canvas.height = Math.max(
+    1,
+    Math.round(image.naturalHeight * scale)
+  );
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    throw new Error("O navegador não disponibilizou o canvas da imagem.");
+  }
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  const blob = await canvasToBlob(
+    canvas,
+    "image/jpeg",
+    CLOUD_IMAGE_JPEG_QUALITY
+  );
+
+  return {
+    fileName: file.name,
+    mimeType: "image/jpeg",
+    dataUrl: await readFileAsDataUrl(blob),
+    originalBytes: file.size,
+  };
+}
+
+function buildOnlineMessages(
+  history: ChatMessage[],
+  currentPrompt: string,
+  images: PreparedCloudImage[]
+): OnlineMessage[] {
+  const messages: OnlineMessage[] = [
+    {
+      role: "system",
+      content: [
+        "Você é o ARGOS, assistente técnico do Mestre.",
+        "Responda em português brasileiro, com precisão e profundidade proporcional ao pedido.",
+        "Mantenha o estado real da conversa e siga fluxos interativos sem pular etapas.",
+        "Quando o usuário fornecer dados solicitados na etapa anterior, avance apenas para a próxima etapa definida por ele.",
+        "Não invente características, ações executadas, arquivos acessados, políticas ou limitações.",
+        "Em programação, forneça soluções completas e tecnicamente verificáveis.",
+      ].join(" "),
+    },
+  ];
+
+  const recentHistory = history
+    .filter(
+      (message) =>
+        message.id !== "welcome" &&
+        message.status !== "loading" &&
+        message.status !== "error"
+    )
+    .slice(-36);
+
+  for (const message of recentHistory) {
+    messages.push({
+      role: message.role === "user" ? "user" : "assistant",
+      content: message.text,
+    });
+  }
+
+  if (!images.length) {
+    messages.push({
+      role: "user",
+      content: currentPrompt,
+    });
+
+    return messages;
+  }
+
+  messages.push({
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: [
+          currentPrompt,
+          "",
+          "Imagens originais anexadas nesta mensagem:",
+          ...images.map(
+            (image, index) =>
+              `${index + 1}. ${image.fileName}`
+          ),
+          "Analise diretamente os pixels das imagens e considere o histórico estruturado acima.",
+        ].join("\n"),
+      },
+      ...images.map(
+        (image): OnlineImagePart => ({
+          type: "image_url",
+          image_url: {
+            url: image.dataUrl,
+          },
+        })
+      ),
+    ],
+  });
+
+  return messages;
 }
 
 function loadLegacyStoredMessagesRaw(): string | null {
@@ -888,8 +1138,28 @@ export function MasterChatHome() {
       return;
     }
 
+    const imageAttachments = attachmentsForRequest.filter(
+      (attachment) => isCloudImageAttachment(attachment.file)
+    );
+    const documentAttachments = attachmentsForRequest.filter(
+      (attachment) => !isCloudImageAttachment(attachment.file)
+    );
+
+    if (
+      onlineAiStatus === "online" &&
+      imageAttachments.length > MAX_CLOUD_IMAGE_FILES
+    ) {
+      setAttachmentNotice(
+        `Envie no máximo ${MAX_CLOUD_IMAGE_FILES} imagens por solicitação online.`
+      );
+      return;
+    }
+
     const userRequest =
-      value || "Analise os arquivos anexados.";
+      value ||
+      (imageAttachments.length
+        ? "Analise as imagens anexadas considerando o contexto da conversa."
+        : "Analise os arquivos anexados.");
 
     const userMessageText = attachmentsForRequest.length
       ? [
@@ -914,7 +1184,9 @@ export function MasterChatHome() {
 
     const executorLabel =
       onlineAiStatus === "online"
-        ? "z-ai/glm-5.2"
+        ? imageAttachments.length
+          ? "visão online"
+          : "executor online"
         : localAiStatus === "online"
           ? LOCAL_FALLBACK_MODEL_ID
           : null;
@@ -941,29 +1213,58 @@ export function MasterChatHome() {
 
     try {
       let promptInput = userRequest;
+      let preparedCloudImages: PreparedCloudImage[] = [];
 
       if (attachmentsForRequest.length) {
-        updateLoadingMessage(
-          loadingId,
-          "Lendo e preparando os anexos..."
-        );
+        if (onlineAiStatus === "online") {
+          if (documentAttachments.length) {
+            updateLoadingMessage(
+              loadingId,
+              "Lendo os documentos anexados..."
+            );
 
-        const attachmentResult =
-          await processAttachmentsForPrompt(
-            attachmentsForRequest
+            const attachmentResult =
+              await processAttachmentsForPrompt(
+                documentAttachments
+              );
+
+            promptInput = [
+              userRequest,
+              attachmentResult.promptContext,
+            ].join("\n\n");
+          }
+
+          if (imageAttachments.length) {
+            updateLoadingMessage(
+              loadingId,
+              imageAttachments.length === 1
+                ? "Preparando a imagem original para análise visual..."
+                : `Preparando ${imageAttachments.length} imagens originais para análise visual...`
+            );
+
+            preparedCloudImages = await Promise.all(
+              imageAttachments.map((attachment) =>
+                prepareCloudImage(attachment.file)
+              )
+            );
+          }
+        } else {
+          updateLoadingMessage(
+            loadingId,
+            "Lendo e preparando os anexos para o executor local..."
           );
 
-        promptInput = [
-          userRequest,
-          attachmentResult.promptContext,
-        ].join("\n\n");
-      }
+          const attachmentResult =
+            await processAttachmentsForPrompt(
+              attachmentsForRequest
+            );
 
-      const promptWithContext =
-        buildPromptWithConversationContext(
-          promptInput,
-          messages
-        );
+          promptInput = [
+            userRequest,
+            attachmentResult.promptContext,
+          ].join("\n\n");
+        }
+      }
 
       const toolContext =
         !attachmentsForRequest.length && value
@@ -996,30 +1297,22 @@ export function MasterChatHome() {
 
       const promptForExecutor = toolContext
         ? buildPromptWithToolContext(value, toolContext)
-        : promptWithContext;
-
-      const onlinePromptForExecutor = [
-        "Você é o ARGOS, assistente técnico do Mestre.",
-        "Executor atual: z-ai/glm-5.2.",
-        "Responda diretamente, com profundidade proporcional ao pedido.",
-        "Quando o Mestre perguntar, informe claramente o modelo e a versão em uso.",
-        "Não invente políticas de ocultação, limitações, capacidades ou ações.",
-        "Não afirme que executou arquivos, comandos ou testes que não executou.",
-        "Em programação, forneça soluções completas, precisas e tecnicamente verificáveis.",
-        promptForExecutor,
-      ].join("\n\n");
-
-      const localPromptForExecutor = [
-        "Você é o ARGOS, assistente técnico do Mestre.",
-        "Executor local atual: " + LOCAL_FALLBACK_MODEL_ID + ".",
-        "Responda diretamente, com profundidade proporcional ao pedido.",
-        "Quando o Mestre perguntar, informe claramente o modelo local em uso.",
-        "Não invente políticas de ocultação, limitações, capacidades ou ações.",
-        "Não afirme que executou arquivos, comandos ou testes que não executou.",
-        promptForExecutor,
-      ].join("\n\n");
+        : promptInput;
 
       if (onlineAiStatus === "online") {
+        updateLoadingMessage(
+          loadingId,
+          preparedCloudImages.length
+            ? "Enviando texto, histórico e pixels reais ao executor visual..."
+            : "Consultando o executor online..."
+        );
+
+        const onlineMessages = buildOnlineMessages(
+          messages,
+          promptForExecutor,
+          preparedCloudImages
+        );
+
         const response = await fetch("/api/ai/chat", {
           method: "POST",
           headers: {
@@ -1029,8 +1322,13 @@ export function MasterChatHome() {
           signal: controller.signal,
           body: JSON.stringify({
             dataClass: "generic_chat",
-            prompt: onlinePromptForExecutor,
-            max_tokens: 32768,
+            messages: onlineMessages,
+            max_tokens: preparedCloudImages.length
+              ? 16000
+              : 12000,
+            timeoutMs: preparedCloudImages.length
+              ? 240000
+              : 180000,
           }),
         });
 
@@ -1039,12 +1337,15 @@ export function MasterChatHome() {
         if (!response.ok || !payload.ok) {
           throw new Error(
             payload?.reason ||
-            "Falha ao consultar o ARGOS online."
+              "Falha ao consultar o ARGOS online."
           );
         }
 
         const responseModel = String(
-          payload.model || "z-ai/glm-5.2"
+          payload.model ||
+            (preparedCloudImages.length
+              ? "executor visual"
+              : "executor online")
         );
 
         setMessages((current) =>
@@ -1080,6 +1381,19 @@ export function MasterChatHome() {
         );
       }
 
+      const localPromptForExecutor = [
+        "Você é o ARGOS, assistente técnico do Mestre.",
+        "Executor local atual: " + LOCAL_FALLBACK_MODEL_ID + ".",
+        "Responda diretamente, com profundidade proporcional ao pedido.",
+        "Quando o Mestre perguntar, informe claramente o modelo local em uso.",
+        "Não invente políticas de ocultação, limitações, capacidades ou ações.",
+        "Não afirme que executou arquivos, comandos ou testes que não executou.",
+        buildPromptWithConversationContext(
+          promptForExecutor,
+          messages
+        ),
+      ].join("\n\n");
+
       const response = await fetch(
         `${LOCAL_AI_BRIDGE_URL}/local-ai/chat`,
         {
@@ -1101,7 +1415,7 @@ export function MasterChatHome() {
       if (!response.ok || !payload.ok) {
         throw new Error(
           payload?.error?.message ||
-          "Falha ao consultar a IA local."
+            "Falha ao consultar a IA local."
         );
       }
 
@@ -1496,7 +1810,11 @@ export function MasterChatHome() {
             type="button"
             className={sending ? "chat-send-button chat-send-button-cancel" : "chat-send-button"}
             onClick={handleSubmit}
-            disabled={!sending && !draft.trim()}
+            disabled={
+              !sending &&
+              !draft.trim() &&
+              !attachments.length
+            }
             title={sending ? "Cancelar consulta" : "Enviar para o ARGOS"}
           >
             {sending ? "×" : "↑"}
