@@ -1,7 +1,6 @@
 import {
   buildRepairMessages,
   buildVeo3DirectorInstruction,
-  buildVisualProfileInstruction,
   detectVeo3MatrixWorkflow,
   formatVeo3Response,
   getVeo3RepairAttemptLimit,
@@ -329,7 +328,7 @@ function collectImageParts(messages) {
   return images.slice(-MAX_IMAGES);
 }
 
-function buildVisionMessages(messages, useStructuredVisualProfile = false) {
+function buildVisionMessages(messages, veo3Workflow = false) {
   const images = collectImageParts(messages);
   const textualContext = messages
     .filter((message) => message.role !== "system")
@@ -345,18 +344,21 @@ function buildVisionMessages(messages, useStructuredVisualProfile = false) {
   return [
     {
       role: "system",
-      content: useStructuredVisualProfile
-        ? buildVisualProfileInstruction()
-        : [
-            "Você é o especialista visual do ARGOS.",
-            "Sua única tarefa é examinar os pixels das imagens e extrair fatos visuais úteis para outro modelo concluir a solicitação do usuário.",
-            "Não execute a tarefa final do usuário, não escreva scripts, não escreva JSON e não faça conclusão comercial.",
-            "Não copie medidas, composição ou características do texto como se fossem visíveis na imagem.",
-            "Diferencie claramente o que está visível do que vem apenas do contexto textual.",
-            "Descreva personagem, roupa, cor, corte, acessórios, pose, cenário, enquadramento e iluminação.",
-            "Quando algo não puder ser confirmado, declare a incerteza.",
-            "Responda em português brasileiro, de forma objetiva e factual.",
-          ].join(" "),
+      content: [
+        "Você é o especialista visual do ARGOS.",
+        "Sua única tarefa é examinar os pixels das imagens e extrair fatos visuais úteis para outro modelo concluir a solicitação do usuário.",
+        "Não execute a tarefa final do usuário, não escreva scripts, não escreva JSON e não faça conclusão comercial.",
+        "Não copie medidas, composição ou características do texto como se fossem visíveis na imagem.",
+        "Diferencie claramente o que está visível do que vem apenas do contexto textual.",
+        "Descreva personagem, roupa, cor, corte, acessórios, pose, cenário, enquadramento e iluminação.",
+        veo3Workflow
+          ? "Para o fluxo Veo 3, detalhe também produto principal, comprimento visual, fechamento ou amarração, calçado, elementos do cenário e qualquer incerteza real."
+          : "",
+        "Quando algo não puder ser confirmado, declare a incerteza.",
+        "Responda em português brasileiro, de forma objetiva e factual.",
+      ]
+        .filter(Boolean)
+        .join(" "),
     },
     {
       role: "user",
@@ -365,7 +367,7 @@ function buildVisionMessages(messages, useStructuredVisualProfile = false) {
           type: "text",
           text: [
             "Analise as imagens anexadas para apoiar a execução da tarefa descrita no histórico.",
-            "Não responda à tarefa final; entregue somente a leitura visual factual.",
+            "Não responda à tarefa final; entregue somente a leitura visual factual em texto natural.",
             "",
             "CONTEXTO TEXTUAL DA CONVERSA:",
             textualContext || "Nenhum contexto textual adicional.",
@@ -373,6 +375,78 @@ function buildVisionMessages(messages, useStructuredVisualProfile = false) {
         },
         ...images,
       ],
+    },
+  ];
+}
+
+function buildVisualProfileNormalizerMessages(visionAnalysis) {
+  const schema = {
+    personagem: "descrição visual objetiva ou não confirmado",
+    cabelo: "descrição visual objetiva ou não confirmado",
+    parte_superior: "descrição visual objetiva ou não confirmado",
+    produto_principal: "descrição visual objetiva ou não confirmado",
+    cor_produto: "uma única cor visual confirmada ou não confirmado",
+    comprimento_visual: "descrição visual objetiva ou não confirmado",
+    fechamento_ou_amarracao: "descrição visual objetiva ou não confirmado",
+    acessorios: "descrição visual objetiva ou não confirmado",
+    calcado: "descrição visual objetiva ou não confirmado",
+    cenario: "descrição visual objetiva ou não confirmado",
+    elementos_cenario: ["elemento visível"],
+    iluminacao: "descrição visual objetiva ou não confirmado",
+    pose_inicial: "descrição visual objetiva e completa ou não confirmado",
+    enquadramento_fonte: "descrição do enquadramento real ou não confirmado",
+    incertezas: ["apenas incertezas reais"],
+  };
+
+  return [
+    {
+      role: "system",
+      content: [
+        "Você é o normalizador de ficha visual do ARGOS.",
+        "Transforme a análise factual produzida pelo especialista visual em um único objeto JSON válido.",
+        "Não analise pixels, não execute a tarefa comercial e não acrescente fatos ausentes da análise recebida.",
+        "Quando algum campo não estiver confirmado, use exatamente 'não confirmado'.",
+        "elementos_cenario e incertezas devem ser arrays JSON; use [] quando não houver item confirmado.",
+        "Use uma única cor em cor_produto; nunca use alternativas separadas por barra.",
+        "Retorne somente o objeto JSON, sem markdown, comentários ou texto antes/depois.",
+        "Use exatamente este schema e estes nomes de campos:",
+        JSON.stringify(schema, null, 2),
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        "ANÁLISE VISUAL FACTUAL DO NEMOTRON:",
+        visionAnalysis,
+        "",
+        "Normalize essa análise no schema obrigatório agora.",
+      ].join("\n"),
+    },
+  ];
+}
+
+function buildVisualProfileRepairMessages({
+  visionAnalysis,
+  previousDraft,
+  errors,
+}) {
+  return [
+    ...buildVisualProfileNormalizerMessages(visionAnalysis),
+    {
+      role: "assistant",
+      content: previousDraft,
+    },
+    {
+      role: "system",
+      content: [
+        "A ficha anterior foi rejeitada pelo validador do ARGOS.",
+        "Corrija somente estrutura, nomes de campos, tipos e campos ausentes.",
+        "Não invente fatos visuais e retorne somente um objeto JSON válido.",
+        "ERROS:",
+        ...errors.slice(0, 30).map((error, index) =>
+          `${index + 1}. ${error}`
+        ),
+      ].join("\n"),
     },
   ];
 }
@@ -525,7 +599,9 @@ export async function onRequestGet({ env }) {
     visionModel: DEFAULT_VISION_MODEL,
     supportedWorkflows: ["generic_chat", "veo3_matrix"],
     veo3Validation: {
-      structuredVisualProfile: true,
+      visualAnalysisMode: "natural_text",
+      visualProfileNormalizer: DEFAULT_TEXT_MODEL,
+      visualProfileNormalizationAttempts: 2,
       deterministicValidation: true,
       automaticRepairAttempts: getVeo3RepairAttemptLimit(),
     },
@@ -616,6 +692,7 @@ export async function onRequestPost({ request, env }) {
     let fallbackUsed = false;
     let visionAnalysis = "";
     let visualProfile = null;
+    let visualProfileNormalizationAttempts = 0;
     let validationResult = null;
     let validationAttempts = 0;
     let finalMessages = normalized.messages;
@@ -675,26 +752,92 @@ export async function onRequestPost({ request, env }) {
       }
 
       if (veo3Workflow) {
-        const parsedProfile = parseVisualProfile(visionAnalysis);
+        let profileDraft = "";
+        let parsedProfile = null;
 
-        if (!parsedProfile.ok) {
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+          const profileMessages =
+            attempt === 1
+              ? buildVisualProfileNormalizerMessages(visionAnalysis)
+              : buildVisualProfileRepairMessages({
+                  visionAnalysis,
+                  previousDraft: profileDraft,
+                  errors: parsedProfile?.errors || [],
+                });
+
+          const profileResult = await callNvidiaModel({
+            apiKey: env.NVIDIA_API_KEY,
+            model: selectedModel,
+            messages: profileMessages,
+            payload: {
+              temperature: 0,
+              top_p: 0.9,
+              max_tokens: 3500,
+            },
+            signal: controller.signal,
+          });
+
+          visualProfileNormalizationAttempts = attempt;
+
+          if (!profileResult.ok) {
+            return json(
+              {
+                ok: false,
+                code: "VISUAL_PROFILE_NORMALIZER_ERROR",
+                provider: "nvidia",
+                model: selectedModel,
+                upstreamStatus: profileResult.status,
+                reason: extractUpstreamError(
+                  profileResult.data,
+                  profileResult.rawText
+                ),
+                visualProfileNormalizationAttempts,
+                elapsedMs: Date.now() - startedAt,
+              },
+              502
+            );
+          }
+
+          profileDraft = profileResult.responseText;
+
+          if (!profileDraft) {
+            parsedProfile = {
+              ok: false,
+              profile: null,
+              errors: [
+                "O normalizador respondeu sem conteúdo utilizável.",
+              ],
+            };
+            continue;
+          }
+
+          parsedProfile = parseVisualProfile(profileDraft);
+
+          if (parsedProfile.ok) {
+            visualProfile = parsedProfile.profile;
+            break;
+          }
+        }
+
+        if (!visualProfile) {
           return json(
             {
               ok: false,
-              code: "INVALID_VISUAL_PROFILE",
+              code: "INVALID_NORMALIZED_VISUAL_PROFILE",
               provider: "nvidia",
-              model: DEFAULT_VISION_MODEL,
+              visionModel: DEFAULT_VISION_MODEL,
+              normalizerModel: selectedModel,
               reason:
-                "O especialista visual não produziu a ficha estruturada exigida pelo workflow VEO3_MATRIX.",
-              validationErrors: parsedProfile.errors,
+                "O GLM não conseguiu normalizar a análise visual no schema obrigatório após duas tentativas.",
+              validationErrors: parsedProfile?.errors || [],
               visualResponseExcerpt: visionAnalysis.slice(0, 3000),
+              normalizedResponseExcerpt: profileDraft.slice(0, 3000),
+              visualProfileNormalizationAttempts,
               elapsedMs: Date.now() - startedAt,
             },
             502
           );
         }
-
-        visualProfile = parsedProfile.profile;
       }
 
       finalMessages = buildDirectorMessages(
@@ -907,6 +1050,7 @@ export async function onRequestPost({ request, env }) {
         ? Boolean(validationResult?.valid)
         : null,
       validationAttempts,
+      visualProfileNormalizationAttempts,
       visualProfile: veo3Workflow ? visualProfile : null,
       response: result.responseText,
       usage: result.data?.usage || null,
