@@ -1,7 +1,19 @@
+import {
+  buildRepairMessages,
+  buildVeo3DirectorInstruction,
+  buildVisualProfileInstruction,
+  detectVeo3MatrixWorkflow,
+  formatVeo3Response,
+  getVeo3RepairAttemptLimit,
+  parseVeo3Objects,
+  parseVisualProfile,
+  validateVeo3Matrix,
+} from "./veo3-validator.js";
+
 const NVIDIA_CHAT_ENDPOINT =
   "https://integrate.api.nvidia.com/v1/chat/completions";
 
-const DEFAULT_TEXT_MODEL = "mistralai/mistral-medium-3.5-128b";
+const DEFAULT_TEXT_MODEL = "z-ai/glm-5.2";
 const FALLBACK_TEXT_MODEL = DEFAULT_TEXT_MODEL;
 const DEFAULT_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl";
 
@@ -317,7 +329,7 @@ function collectImageParts(messages) {
   return images.slice(-MAX_IMAGES);
 }
 
-function buildVisionMessages(messages) {
+function buildVisionMessages(messages, useStructuredVisualProfile = false) {
   const images = collectImageParts(messages);
   const textualContext = messages
     .filter((message) => message.role !== "system")
@@ -333,16 +345,18 @@ function buildVisionMessages(messages) {
   return [
     {
       role: "system",
-      content: [
-        "Você é o especialista visual do ARGOS.",
-        "Sua única tarefa é examinar os pixels das imagens e extrair fatos visuais úteis para outro modelo concluir a solicitação do usuário.",
-        "Não execute a tarefa final do usuário, não escreva scripts, não escreva JSON e não faça conclusão comercial.",
-        "Não copie medidas, composição ou características do texto como se fossem visíveis na imagem.",
-        "Diferencie claramente o que está visível do que vem apenas do contexto textual.",
-        "Descreva personagem, roupa, cor, corte, acessórios, pose, cenário, enquadramento e iluminação.",
-        "Quando algo não puder ser confirmado, declare a incerteza.",
-        "Responda em português brasileiro, de forma objetiva e factual.",
-      ].join(" "),
+      content: useStructuredVisualProfile
+        ? buildVisualProfileInstruction()
+        : [
+            "Você é o especialista visual do ARGOS.",
+            "Sua única tarefa é examinar os pixels das imagens e extrair fatos visuais úteis para outro modelo concluir a solicitação do usuário.",
+            "Não execute a tarefa final do usuário, não escreva scripts, não escreva JSON e não faça conclusão comercial.",
+            "Não copie medidas, composição ou características do texto como se fossem visíveis na imagem.",
+            "Diferencie claramente o que está visível do que vem apenas do contexto textual.",
+            "Descreva personagem, roupa, cor, corte, acessórios, pose, cenário, enquadramento e iluminação.",
+            "Quando algo não puder ser confirmado, declare a incerteza.",
+            "Responda em português brasileiro, de forma objetiva e factual.",
+          ].join(" "),
     },
     {
       role: "user",
@@ -363,7 +377,7 @@ function buildVisionMessages(messages) {
   ];
 }
 
-function buildDirectorMessages(messages, visionAnalysis) {
+function buildDirectorMessages(messages, visionAnalysis, visualProfile = null) {
   const directorMessages = messages.map((message) => {
     if (typeof message.content === "string") {
       return {
@@ -407,7 +421,12 @@ function buildDirectorMessages(messages, visionAnalysis) {
       "Não responda apenas com uma descrição da imagem e não repita a ficha técnica, salvo quando isso fizer parte do resultado pedido.",
       "Respeite rigorosamente formatos, etapas, quantidade de entregáveis e restrições definidos pelo usuário no histórico.",
       "Não invente características técnicas ausentes.",
-    ].join(" "),
+      visualProfile
+        ? buildVeo3DirectorInstruction(visualProfile)
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   };
 
   if (firstSystemIndex >= 0) {
@@ -504,6 +523,12 @@ export async function onRequestGet({ env }) {
     textModel: DEFAULT_TEXT_MODEL,
     fastTextModel: FALLBACK_TEXT_MODEL,
     visionModel: DEFAULT_VISION_MODEL,
+    supportedWorkflows: ["generic_chat", "veo3_matrix"],
+    veo3Validation: {
+      structuredVisualProfile: true,
+      deterministicValidation: true,
+      automaticRepairAttempts: getVeo3RepairAttemptLimit(),
+    },
     sensitiveDataLocalOnly: true,
   });
 }
@@ -571,6 +596,10 @@ export async function onRequestPost({ request, env }) {
     );
   }
 
+  const veo3Workflow =
+    normalized.hasImage &&
+    detectVeo3MatrixWorkflow(normalized.messages, payload);
+
   const timeoutMs = clampNumber(
     payload?.timeoutMs,
     normalized.hasImage ? 240000 : 150000,
@@ -586,13 +615,16 @@ export async function onRequestPost({ request, env }) {
     let selectedModel = primaryTextModel;
     let fallbackUsed = false;
     let visionAnalysis = "";
+    let visualProfile = null;
+    let validationResult = null;
+    let validationAttempts = 0;
     let finalMessages = normalized.messages;
 
     if (normalized.hasImage) {
       const visionResult = await callNvidiaModel({
         apiKey: env.NVIDIA_API_KEY,
         model: DEFAULT_VISION_MODEL,
-        messages: buildVisionMessages(normalized.messages),
+        messages: buildVisionMessages(normalized.messages, veo3Workflow),
         payload: {
           temperature: 0,
           top_p: 0.9,
@@ -642,9 +674,33 @@ export async function onRequestPost({ request, env }) {
         );
       }
 
+      if (veo3Workflow) {
+        const parsedProfile = parseVisualProfile(visionAnalysis);
+
+        if (!parsedProfile.ok) {
+          return json(
+            {
+              ok: false,
+              code: "INVALID_VISUAL_PROFILE",
+              provider: "nvidia",
+              model: DEFAULT_VISION_MODEL,
+              reason:
+                "O especialista visual não produziu a ficha estruturada exigida pelo workflow VEO3_MATRIX.",
+              validationErrors: parsedProfile.errors,
+              visualResponseExcerpt: visionAnalysis.slice(0, 3000),
+              elapsedMs: Date.now() - startedAt,
+            },
+            502
+          );
+        }
+
+        visualProfile = parsedProfile.profile;
+      }
+
       finalMessages = buildDirectorMessages(
         normalized.messages,
-        visionAnalysis
+        visionAnalysis,
+        visualProfile
       );
     }
 
@@ -717,6 +773,122 @@ export async function onRequestPost({ request, env }) {
       );
     }
 
+    if (veo3Workflow && visualProfile) {
+      const sourceText = normalized.messages
+        .filter((message) => message.role === "user")
+        .map((message) => contentToText(message.content))
+        .filter(Boolean)
+        .join("\n\n");
+      const repairAttemptLimit = getVeo3RepairAttemptLimit();
+      let draft = result.responseText;
+
+      while (true) {
+        const parsed = parseVeo3Objects(draft);
+        const parseViolations = parsed.parseErrors.map((message) => ({
+          code: "INVALID_JSON",
+          message,
+          path: "response",
+        }));
+        validationResult = validateVeo3Matrix({
+          objects: parsed.objects,
+          visualProfile,
+          sourceText,
+        });
+        const violations = [
+          ...parseViolations,
+          ...validationResult.errors,
+        ];
+
+        if (violations.length === 0 && validationResult.valid) {
+          result.responseText = formatVeo3Response(
+            validationResult.videos
+          );
+          break;
+        }
+
+        if (validationAttempts >= repairAttemptLimit) {
+          return json(
+            {
+              ok: false,
+              code: "VEO3_VALIDATION_FAILED",
+              provider: "nvidia",
+              model: selectedModel,
+              workflow: "veo3_matrix",
+              reason:
+                "A matriz foi rejeitada pelo validador determinístico após o limite de correções automáticas.",
+              validationAttempts,
+              validationErrors: violations.slice(0, 60),
+              draftExcerpt: draft.slice(0, 12000),
+              visualProfile,
+              elapsedMs: Date.now() - startedAt,
+            },
+            422
+          );
+        }
+
+        const repairMessages = buildRepairMessages({
+          messages: finalMessages,
+          draft,
+          errors: violations,
+          visualProfile,
+        });
+
+        const repairedResult = await callNvidiaModel({
+          apiKey: env.NVIDIA_API_KEY,
+          model: selectedModel,
+          messages: repairMessages,
+          payload: {
+            temperature: 0,
+            top_p: 0.9,
+            max_tokens: 16000,
+          },
+          signal: controller.signal,
+        });
+
+        validationAttempts += 1;
+
+        if (!repairedResult.ok) {
+          return json(
+            {
+              ok: false,
+              code: "VEO3_REPAIR_PROVIDER_ERROR",
+              provider: "nvidia",
+              model: selectedModel,
+              workflow: "veo3_matrix",
+              upstreamStatus: repairedResult.status,
+              reason: extractUpstreamError(
+                repairedResult.data,
+                repairedResult.rawText
+              ),
+              validationAttempts,
+              elapsedMs: Date.now() - startedAt,
+            },
+            502
+          );
+        }
+
+        if (!repairedResult.responseText) {
+          return json(
+            {
+              ok: false,
+              code: "EMPTY_VEO3_REPAIR",
+              provider: "nvidia",
+              model: selectedModel,
+              workflow: "veo3_matrix",
+              reason:
+                "O modelo não retornou conteúdo durante a correção automática da matriz.",
+              validationAttempts,
+              elapsedMs: Date.now() - startedAt,
+            },
+            502
+          );
+        }
+
+        result = repairedResult;
+        draft = repairedResult.responseText;
+      }
+    }
+
     return json({
       ok: true,
       route: normalized.hasImage
@@ -729,6 +901,13 @@ export async function onRequestPost({ request, env }) {
         : null,
       directorModel: selectedModel,
       fallbackUsed,
+      workflow: veo3Workflow ? "veo3_matrix" : "generic_chat",
+      validationApplied: Boolean(veo3Workflow),
+      validationPassed: veo3Workflow
+        ? Boolean(validationResult?.valid)
+        : null,
+      validationAttempts,
+      visualProfile: veo3Workflow ? visualProfile : null,
       response: result.responseText,
       usage: result.data?.usage || null,
       imageCount: normalized.imageCount,
