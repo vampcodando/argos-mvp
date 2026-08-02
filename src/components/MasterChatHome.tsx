@@ -519,8 +519,93 @@ type ArgosToolContext = {
   tool: string;
   endpoint: string;
   reason?: string;
+  elapsedMs: number;
   result: unknown;
 };
+
+type ToolExecutionMetadata = {
+  tool: "weather" | "github-repo" | "read-url";
+  ok: boolean;
+  source?: string;
+  reader?: "fetch" | "browser";
+  status?: number;
+  elapsedMs: number;
+  browserMsUsed?: number;
+};
+
+const ALLOWED_TOOL_NAMES = new Set<ToolExecutionMetadata["tool"]>([
+  "weather",
+  "github-repo",
+  "read-url",
+]);
+
+function sanitizeToolSource(value: unknown) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return undefined;
+  }
+
+  if (/(?:authorization|bearer|api[-_ ]?key|secret|token)\s*[:=]/i.test(raw)) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(raw);
+
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return undefined;
+    }
+
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+
+    return url.toString().slice(0, 240);
+  } catch {
+    return undefined;
+  }
+}
+
+function buildToolExecutionMetadata(
+  toolContext: ArgosToolContext
+): ToolExecutionMetadata | null {
+  const tool = toolContext.tool as ToolExecutionMetadata["tool"];
+
+  if (!ALLOWED_TOOL_NAMES.has(tool)) {
+    return null;
+  }
+
+  const result = toolContext.result as Record<string, unknown>;
+  const metadata: ToolExecutionMetadata = {
+    tool,
+    ok: result?.ok === true,
+    elapsedMs: Math.max(0, Math.round(toolContext.elapsedMs)),
+  };
+  const source = sanitizeToolSource(result?.source);
+  const reader = String(result?.reader || "").trim().toLowerCase();
+  const status = Number(result?.status);
+  const browserMsUsed = Number(result?.browserMsUsed);
+
+  if (source) {
+    metadata.source = source;
+  }
+
+  if (reader === "fetch" || reader === "browser") {
+    metadata.reader = reader;
+  }
+
+  if (Number.isInteger(status) && status >= 100 && status <= 599) {
+    metadata.status = status;
+  }
+
+  if (Number.isFinite(browserMsUsed) && browserMsUsed >= 0) {
+    metadata.browserMsUsed = Math.round(browserMsUsed);
+  }
+
+  return metadata;
+}
 
 function truncateToolText(value: string, maxLength = 900) {
   if (value.length <= maxLength) {
@@ -722,6 +807,8 @@ async function resolveToolContextForPrompt(
   currentPrompt: string,
   signal: AbortSignal
 ): Promise<ArgosToolContext | null> {
+  const startedAt = performance.now();
+
   try {
     const routerResponse = await fetch("/api/tools/router", {
       method: "POST",
@@ -769,6 +856,7 @@ async function resolveToolContextForPrompt(
       tool: String(detection.tool),
       endpoint,
       reason: detection.reason ? String(detection.reason) : undefined,
+      elapsedMs: performance.now() - startedAt,
       result: toolPayload,
     };
   } catch (error) {
@@ -1322,6 +1410,9 @@ export function MasterChatHome() {
           signal: controller.signal,
           body: JSON.stringify({
             dataClass: "generic_chat",
+            toolExecution: toolContext
+              ? buildToolExecutionMetadata(toolContext)
+              : null,
             messages: onlineMessages,
             max_tokens: preparedCloudImages.length
               ? 16000

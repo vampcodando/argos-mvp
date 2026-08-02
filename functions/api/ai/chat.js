@@ -33,6 +33,13 @@ const BLOCKED_DATA_CLASSES = new Set([
   "database_content",
 ]);
 
+const ALLOWED_TOOL_NAMES = new Set([
+  "weather",
+  "github-repo",
+  "read-url",
+]);
+const ALLOWED_TOOL_READERS = new Set(["fetch", "browser"]);
+
 const MAX_CONTEXT_CHARACTERS = 80000;
 const MAX_MESSAGES = 40;
 const MAX_IMAGES = 3;
@@ -60,6 +67,84 @@ function clampNumber(value, fallback, minimum, maximum) {
   }
 
   return Math.min(Math.max(numericValue, minimum), maximum);
+}
+
+function sanitizeToolSource(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  if (/(?:authorization|bearer|api[-_ ]?key|secret|token)\s*[:=]/i.test(raw)) {
+    return null;
+  }
+
+  try {
+    const url = new URL(raw);
+
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return null;
+    }
+
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+
+    return url.toString().slice(0, 240);
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeToolExecution(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const tool = String(value.tool || "").trim();
+
+  if (!ALLOWED_TOOL_NAMES.has(tool)) {
+    return null;
+  }
+
+  const metadata = {
+    tool,
+    ok: value.ok === true,
+    reportedBy: "master-chat",
+  };
+  const source = sanitizeToolSource(value.source);
+  const reader = String(value.reader || "").trim().toLowerCase();
+  const status = Number(value.status);
+  const elapsedMs = Number(value.elapsedMs);
+  const browserMsUsed = Number(value.browserMsUsed);
+
+  if (source) {
+    metadata.source = source;
+  }
+
+  if (ALLOWED_TOOL_READERS.has(reader)) {
+    metadata.reader = reader;
+  }
+
+  if (Number.isInteger(status) && status >= 100 && status <= 599) {
+    metadata.status = status;
+  }
+
+  if (Number.isFinite(elapsedMs) && elapsedMs >= 0) {
+    metadata.elapsedMs = Math.round(
+      clampNumber(elapsedMs, 0, 0, 300000)
+    );
+  }
+
+  if (Number.isFinite(browserMsUsed) && browserMsUsed >= 0) {
+    metadata.browserMsUsed = Math.round(
+      clampNumber(browserMsUsed, 0, 0, 300000)
+    );
+  }
+
+  return metadata;
 }
 
 function evaluatePolicy(payload) {
@@ -637,6 +722,7 @@ export async function onRequestPost({ request, env }) {
     );
   }
 
+  const toolExecution = sanitizeToolExecution(payload?.toolExecution);
   const policy = evaluatePolicy(payload);
 
   if (!policy.allowed) {
@@ -1045,6 +1131,7 @@ export async function onRequestPost({ request, env }) {
       directorModel: selectedModel,
       fallbackUsed,
       workflow: veo3Workflow ? "veo3_matrix" : "generic_chat",
+      toolExecution,
       validationApplied: Boolean(veo3Workflow),
       validationPassed: veo3Workflow
         ? Boolean(validationResult?.valid)
