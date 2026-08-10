@@ -37,6 +37,7 @@ const ALLOWED_TOOL_NAMES = new Set([
   "weather",
   "github-repo",
   "read-url",
+  "web-research",
 ]);
 const ALLOWED_TOOL_READERS = new Set(["fetch", "browser"]);
 

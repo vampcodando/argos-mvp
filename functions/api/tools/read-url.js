@@ -11,6 +11,10 @@ function isBlockedHost(hostname) {
     .toLowerCase()
     .replace(/^\[|\]$/g, "");
 
+  if (host.includes(":")) {
+    return true;
+  }
+
   if (
     host === "localhost" ||
     host === "::1" ||
@@ -104,22 +108,54 @@ function cloudflareMarkdownCandidate(url) {
 }
 
 async function fetchText(url, accept = "text/plain, text/markdown, text/html;q=0.8, */*;q=0.5") {
-  const response = await fetch(url, {
-    headers: {
-      accept,
-      "user-agent": "ARGOS-ReadURLTool/1.0",
-    },
-  });
+  const MAX_REDIRECTS = 5;
+  let current = parseSafeUrl(url);
 
-  const text = await response.text();
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+    const response = await fetch(current.toString(), {
+      redirect: "manual",
+      headers: {
+        accept,
+        "user-agent": "ARGOS-ReadURLTool/1.0",
+      },
+    });
 
-  return {
-    ok: response.ok,
-    status: response.status,
-    url,
-    contentType: response.headers.get("content-type") || "",
-    text,
-  };
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+
+      if (!location) {
+        const text = await response.text();
+
+        return {
+          ok: false,
+          status: response.status,
+          url: current.toString(),
+          contentType: response.headers.get("content-type") || "",
+          text,
+        };
+      }
+
+      if (redirectCount >= MAX_REDIRECTS) {
+        throw new Error(`Limite de ${MAX_REDIRECTS} redirects excedido.`);
+      }
+
+      const nextUrl = new URL(location, current);
+      current = parseSafeUrl(nextUrl.toString());
+      continue;
+    }
+
+    const text = await response.text();
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      url: current.toString(),
+      contentType: response.headers.get("content-type") || "",
+      text,
+    };
+  }
+
+  throw new Error(`Limite de ${MAX_REDIRECTS} redirects excedido.`);
 }
 
 function extractCloudflareMarkdownUrl(htmlText) {
