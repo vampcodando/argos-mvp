@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 const HERMES_COMMAND = process.env.ARGOS_HERMES_COMMAND || path.join(process.env.LOCALAPPDATA || "", "hermes", "hermes-agent", "venv", "Scripts", "hermes.exe");
 const HERMES_TIMEOUT_MS = Number(process.env.ARGOS_HERMES_TIMEOUT_MS || 240000);
 const HERMES_PROMPT_LIMIT = Number(process.env.ARGOS_HERMES_PROMPT_LIMIT || 6000);
+const LOCAL_PROMPT_LIMIT = Number(process.env.ARGOS_LOCAL_PROMPT_LIMIT || 6000);
 
 const ALLOWED_MODELS = new Map([
   [
@@ -247,12 +248,12 @@ async function handleChat(request, response, origin) {
     }, origin);
   }
 
-  if (!prompt || prompt.length > 2000) {
+  if (!prompt || prompt.length > LOCAL_PROMPT_LIMIT) {
     return sendJson(response, 400, {
       ok: false,
       error: {
         code: "INVALID_PROMPT",
-        message: "Prompt vazio ou acima do limite de 2000 caracteres.",
+        message: `Prompt vazio ou acima do limite de ${LOCAL_PROMPT_LIMIT} caracteres.`,
       },
     }, origin);
   }

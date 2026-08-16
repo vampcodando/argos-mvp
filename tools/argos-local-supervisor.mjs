@@ -1,4 +1,4 @@
-﻿import http from "node:http";
+import http from "node:http";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdirSync, openSync, closeSync } from "node:fs";
@@ -13,6 +13,7 @@ const BRIDGE_PORT = 8787;
 const OLLAMA_PORT = 11434;
 const OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 const BRIDGE_BASE_URL = "http://127.0.0.1:8787";
+const MEMORY_BASE_URL = "http://127.0.0.1:8789";
 
 const LOG_DIR = path.join(ROOT, "logs");
 mkdirSync(LOG_DIR, { recursive: true });
@@ -50,6 +51,8 @@ const ALLOWED_ORIGINS = new Set([
 
   "http://127.0.0.1:8788",
   "http://localhost:8788",
+  "http://127.0.0.1:8790",
+  "http://localhost:8790",
 ]);
 
 function isAllowedOrigin(origin) {
@@ -130,6 +133,10 @@ async function getBridgeHealth() {
   return fetchJson(`${BRIDGE_BASE_URL}/local-ai/health`);
 }
 
+async function getMemoryHealth() {
+  return fetchJson(`${MEMORY_BASE_URL}/project-memory/health`);
+}
+
 async function isOllamaOnline() {
   try {
     await getOllamaTags();
@@ -142,6 +149,15 @@ async function isOllamaOnline() {
 async function isBridgeOnline() {
   try {
     await getBridgeHealth();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isMemoryOnline() {
+  try {
+    await getMemoryHealth();
     return true;
   } catch {
     return false;
@@ -293,6 +309,20 @@ async function startBridge() {
   await waitFor(isBridgeOnline, "Ponte local", 20, 1000);
 }
 
+async function startMemoryService() {
+  if (await isMemoryOnline()) {
+    return;
+  }
+
+  spawnLogged(
+    "node",
+    ["tools/argos-project-memory-service.mjs"],
+    "project-memory"
+  );
+
+  await waitFor(isMemoryOnline, "Project Memory", 20, 500);
+}
+
 async function stopLocalAi() {
   try {
     bridgeProcess?.kill();
@@ -343,6 +373,7 @@ function formatModels(names) {
 async function getStatusPayload() {
   let tags = null;
   let detectedModels = [];
+  let memoryHealth = null;
 
   try {
     tags = await getOllamaTags();
@@ -351,13 +382,18 @@ async function getStatusPayload() {
       : [];
   } catch {}
 
+  try {
+    memoryHealth = await getMemoryHealth();
+  } catch {}
+
   const ollamaOk = detectedModels.length > 0 || (await isOllamaOnline());
   const bridgeOk = await isBridgeOnline();
+  const memoryOk = memoryHealth?.ok === true || (await isMemoryOnline());
 
   return {
     ok: true,
     service: "argos-local-supervisor",
-    version: "v0.4.3",
+    version: "v0.5.0",
     supervisor: {
       ok: true,
       host: `${HOST}:${PORT}`,
@@ -371,18 +407,29 @@ async function getStatusPayload() {
       ok: bridgeOk,
       baseUrl: BRIDGE_BASE_URL,
     },
+    memory: {
+      ok: memoryOk,
+      baseUrl: MEMORY_BASE_URL,
+      service: memoryHealth?.service || "argos-project-memory-service",
+      version: memoryHealth?.version || null,
+      counts: memoryHealth?.counts || null,
+      capabilities: memoryHealth?.capabilities || null,
+    },
     localAiReady: ollamaOk && bridgeOk,
+    projectMemoryReady: memoryOk,
     models: formatModels(detectedModels),
     locks: {
       paidApiEnabled: false,
       commandExecutionEnabled: false,
       fileWriteEnabled: false,
       deployExecutionEnabled: false,
+      projectMemoryWriteEnabled: false,
     },
   };
 }
 
 async function startLocalAi() {
+  await startMemoryService();
   await startOllama();
   await startBridge();
 
@@ -417,6 +464,12 @@ const server = http.createServer(async (request, response) => {
       return sendJson(response, 200, await startLocalAi(), origin);
     }
 
+    if (request.method === "POST" && url.pathname === "/local-supervisor/start-memory") {
+      await startMemoryService();
+
+      return sendJson(response, 200, await getStatusPayload(), origin);
+    }
+
     if (request.method === "POST" && url.pathname === "/local-supervisor/stop-ai") {
       await stopLocalAi();
 
@@ -441,6 +494,7 @@ const server = http.createServer(async (request, response) => {
         supervisor: "logs/local-supervisor.*.log",
         ollama: "logs/ollama.*.log",
         bridge: "logs/local-ai-bridge.*.log",
+        memory: "logs/project-memory.*.log",
       },
     }, origin);
   }
@@ -449,4 +503,16 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, HOST, () => {
   console.log(`ARGOS Local Supervisor online em http://${HOST}:${PORT}`);
   console.log("Estado inicial: IA local desligada ate comando manual do usuario.");
+
+  startMemoryService()
+    .then(() => {
+      console.log(`Project Memory online em ${MEMORY_BASE_URL}`);
+    })
+    .catch((error) => {
+      console.error(
+        `Project Memory nao iniciou automaticamente: ${
+          error instanceof Error ? error.message : "erro desconhecido"
+        }`
+      );
+    });
 });

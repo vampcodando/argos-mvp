@@ -15,7 +15,8 @@
     "delploy": "npm run deploy",
     "local:ollama-bridge": "node tools/argos-local-ollama-bridge.mjs",
     "local:supervisor": "node tools/argos-local-supervisor.mjs",
-    "local:models": "node tools/argos-ollama-model-manager.mjs"
+    "local:models": "node tools/argos-ollama-model-manager.mjs",
+    "local:memory": "node tools/argos-project-memory-service.mjs"
   },
   "dependencies": {
     "@tesseract.js-data/eng": "1.0.0",

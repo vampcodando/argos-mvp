@@ -29,3 +29,6 @@ dist-ssr
 
 # Segredos locais do Cloudflare Wrangler
 .dev.vars*
+
+# Memoria persistente local do ARGOS
+.argos/

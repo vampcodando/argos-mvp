@@ -4,7 +4,12 @@ import { processAttachmentsForPrompt } from "../utils/attachmentProcessor";
 
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
+const LOCAL_PROJECT_MEMORY_URL = "http://127.0.0.1:8789";
 const LOCAL_FALLBACK_MODEL_ID = "qwen2.5:3b";
+const LOCAL_EXECUTOR_PROMPT_BUDGET = 5600;
+const LOCAL_MEMORY_CONTEXT_BUDGET = 1600;
+const LOCAL_HISTORY_CONTEXT_BUDGET = 900;
+const CLOUD_PROJECT_CONTEXT_BUDGET = 30000;
 const MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v2";
 const LEGACY_MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
 const LEGACY_MASTER_CHAT_STORAGE_PREFIX = "argos.masterChat.messagesByModel.v1";
@@ -111,6 +116,48 @@ type SupervisorStatusPayload = {
   bridge?: {
     ok: boolean;
   };
+};
+
+type ProjectMemoryContextPayload = {
+  ok: boolean;
+  latestSnapshot?: {
+    id?: number;
+    current_state?: string;
+    decisions?: string;
+    pending?: string;
+    next_step?: string;
+    created_at?: string;
+  } | null;
+  memories?: Array<{
+    id?: number;
+    kind?: string;
+    title?: string;
+    content?: string;
+    importance?: number;
+  }>;
+  code?: Array<{
+    relative_path?: string;
+    start_line?: number;
+    end_line?: number;
+    content?: string;
+    sourceClass?: string;
+  }>;
+};
+
+type ProjectBrokerProfile = "LOCAL_FULL" | "CLOUD_PROJECT";
+
+type ProjectBrokerPayload = {
+  ok: boolean;
+  service?: string;
+  version?: string;
+  profile?: ProjectBrokerProfile;
+  projectSession?: {
+    active?: boolean;
+    activeProjectId?: string | null;
+    project?: Record<string, unknown> | null;
+  };
+  context?: ProjectMemoryContextPayload & Record<string, unknown>;
+  contextPolicy?: Record<string, unknown>;
 };
 
 function createId() {
@@ -492,26 +539,272 @@ function saveStoredMessages(messages: ChatMessage[]) {
   }
 }
 
-function buildPromptWithConversationContext(currentPrompt: string, history: ChatMessage[]) {
-  const recentHistory = history
-    .filter((message) => message.id !== "welcome" && message.status !== "loading")
-    .slice(-80)
-    .map((message) => (message.role === "user" ? "Mestre: " : "ARGOS: ") + message.text)
-    .join("\n");
+function truncateLocalContext(value: string, maxCharacters: number) {
+  const text = String(value || "").trim();
 
-  if (!recentHistory) {
-    return currentPrompt;
+  if (text.length <= maxCharacters) {
+    return text;
   }
 
-  return [
-    "Contexto recente da conversa local do ARGOS:",
-    recentHistory,
-    "",
-    "Mensagem atual do usuario:",
+  return `${text.slice(0, Math.max(0, maxCharacters - 45)).trim()}
+
+[ARGOS: contexto truncado para respeitar o limite local.]`;
+}
+
+function buildRecentLocalHistory(
+  history: ChatMessage[],
+  maxCharacters = LOCAL_HISTORY_CONTEXT_BUDGET
+) {
+  const candidates = history
+    .filter(
+      (message) =>
+        message.id !== "welcome" &&
+        message.status !== "loading" &&
+        message.status !== "error"
+    )
+    .slice(-80)
+    .map(
+      (message) =>
+        `${message.role === "user" ? "Mestre" : "ARGOS"}: ${message.text}`
+    );
+
+  const selected: string[] = [];
+  let size = 0;
+
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const line = candidates[index];
+    const nextSize = size + line.length + 1;
+
+    if (nextSize > maxCharacters) {
+      break;
+    }
+
+    selected.unshift(line);
+    size = nextSize;
+  }
+
+  return selected.join("\n");
+}
+
+function buildProjectMemoryPromptContext(
+  payload: ProjectMemoryContextPayload | null,
+  maxCharacters = LOCAL_MEMORY_CONTEXT_BUDGET
+) {
+  if (!payload?.ok) {
+    return "";
+  }
+
+  const sections: string[] = [];
+  const snapshot = payload.latestSnapshot;
+
+  if (snapshot) {
+    const snapshotLines = [
+      snapshot.current_state
+        ? `Estado atual: ${snapshot.current_state}`
+        : "",
+      snapshot.decisions
+        ? `Decisoes: ${snapshot.decisions}`
+        : "",
+      snapshot.pending
+        ? `Pendencias: ${snapshot.pending}`
+        : "",
+      snapshot.next_step
+        ? `Proximo passo: ${snapshot.next_step}`
+        : "",
+    ].filter(Boolean);
+
+    if (snapshotLines.length) {
+      sections.push(
+        ["Snapshot persistente mais recente:", ...snapshotLines].join("\n")
+      );
+    }
+  }
+
+  const memories = Array.isArray(payload.memories)
+    ? payload.memories.slice(0, 2)
+    : [];
+
+  if (memories.length) {
+    sections.push(
+      [
+        "Memorias persistentes relevantes:",
+        ...memories.map((memory) =>
+          [
+            memory.title ? `[${memory.title}]` : "[memoria]",
+            memory.content || "",
+          ]
+            .filter(Boolean)
+            .join(" ")
+        ),
+      ].join("\n")
+    );
+  }
+
+  const code = Array.isArray(payload.code)
+    ? payload.code.slice(0, 2)
+    : [];
+
+  if (code.length) {
+    sections.push(
+      [
+        "Trechos de codigo recuperados:",
+        ...code.map((chunk) => {
+          const location = [
+            chunk.relative_path || "arquivo desconhecido",
+            Number.isFinite(chunk.start_line)
+              ? `linhas ${chunk.start_line}-${chunk.end_line ?? chunk.start_line}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(", ");
+
+          const excerpt = truncateLocalContext(
+            String(chunk.content || ""),
+            420
+          );
+
+          return `${location}
+${excerpt}`;
+        }),
+      ].join("\n\n")
+    );
+  }
+
+  if (!sections.length) {
+    return "";
+  }
+
+  return truncateLocalContext(
+    [
+      "Contexto persistente recuperado do projeto local ARGOS.",
+      "Use-o como referencia factual. Nao afirme que executou algo apenas porque aparece neste contexto.",
+      "",
+      ...sections,
+    ].join("\n"),
+    maxCharacters
+  );
+}
+
+async function fetchProjectBrokerContext(
+  query: string,
+  profile: ProjectBrokerProfile,
+  parentSignal?: AbortSignal
+): Promise<ProjectBrokerPayload | null> {
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => timeoutController.abort(),
+    1200
+  );
+
+  const abortFromParent = () => timeoutController.abort();
+
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      timeoutController.abort();
+    } else {
+      parentSignal.addEventListener("abort", abortFromParent, {
+        once: true,
+      });
+    }
+  }
+
+  try {
+    const response = await fetch(
+      `${LOCAL_PROJECT_MEMORY_URL}/project-memory/broker`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        signal: timeoutController.signal,
+        body: JSON.stringify({
+          query,
+          profile,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload =
+      (await response.json()) as ProjectBrokerPayload;
+
+    if (
+      !payload?.ok ||
+      payload.profile !== profile
+    ) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+
+    if (parentSignal) {
+      parentSignal.removeEventListener(
+        "abort",
+        abortFromParent
+      );
+    }
+  }
+}
+function buildLocalExecutorPrompt(
+  currentPrompt: string,
+  history: ChatMessage[],
+  memoryPayload: ProjectMemoryContextPayload | null
+) {
+  const preamble = [
+    "Voce e o ARGOS, assistente tecnico do Mestre.",
+    "Executor local atual: " + LOCAL_FALLBACK_MODEL_ID + ".",
+    "Responda diretamente, com profundidade proporcional ao pedido.",
+    "Quando o Mestre perguntar, informe claramente o modelo local em uso.",
+    "Nao invente politicas de ocultacao, limitacoes, capacidades ou acoes.",
+    "Nao afirme que executou arquivos, comandos ou testes que nao executou.",
+  ].join("\n\n");
+
+  const memoryContext =
+    buildProjectMemoryPromptContext(memoryPayload);
+
+  const recentHistory =
+    buildRecentLocalHistory(history);
+
+  const reserved =
+    preamble.length +
+    memoryContext.length +
+    recentHistory.length +
+    180;
+
+  const currentPromptBudget = Math.max(
+    1200,
+    LOCAL_EXECUTOR_PROMPT_BUDGET - reserved
+  );
+
+  const currentContext = truncateLocalContext(
     currentPrompt,
-    "",
-    "Responda considerando o contexto recente. Nao diga que executou comandos se nao executou."
-  ].join("\n");
+    currentPromptBudget
+  );
+
+  const parts = [
+    preamble,
+    memoryContext
+      ? `MEMORIA DO PROJETO:\n${memoryContext}`
+      : "",
+    recentHistory
+      ? `CONTEXTO RECENTE DA CONVERSA:\n${recentHistory}`
+      : "",
+    `SOLICITACAO ATUAL:\n${currentContext}`,
+  ].filter(Boolean);
+
+  return truncateLocalContext(
+    parts.join("\n\n"),
+    LOCAL_EXECUTOR_PROMPT_BUDGET
+  );
 }
 
 type ArgosToolContext = {
@@ -1548,6 +1841,26 @@ export function MasterChatHome() {
           preparedCloudImages
         );
 
+        const cloudProjectBroker =
+          preparedCloudImages.length === 0
+            ? await fetchProjectBrokerContext(
+                userRequest,
+                "CLOUD_PROJECT",
+                controller.signal
+              )
+            : null;
+
+        const serializedCloudProjectContext =
+          cloudProjectBroker
+            ? JSON.stringify(cloudProjectBroker)
+            : "";
+
+        const cloudProjectContext =
+          serializedCloudProjectContext.length > 0 &&
+          serializedCloudProjectContext.length <=
+            CLOUD_PROJECT_CONTEXT_BUDGET
+            ? cloudProjectBroker
+            : null;
         const response = await fetch("/api/ai/chat", {
           method: "POST",
           headers: {
@@ -1556,7 +1869,10 @@ export function MasterChatHome() {
           },
           signal: controller.signal,
           body: JSON.stringify({
-            dataClass: "generic_chat",
+            dataClass: cloudProjectContext
+              ? "project_context_sanitized"
+              : "generic_chat",
+            projectContext: cloudProjectContext,
             toolExecution: toolContext
               ? buildToolExecutionMetadata(toolContext)
               : null,
@@ -1619,18 +1935,27 @@ export function MasterChatHome() {
         );
       }
 
-      const localPromptForExecutor = [
-        "Você é o ARGOS, assistente técnico do Mestre.",
-        "Executor local atual: " + LOCAL_FALLBACK_MODEL_ID + ".",
-        "Responda diretamente, com profundidade proporcional ao pedido.",
-        "Quando o Mestre perguntar, informe claramente o modelo local em uso.",
-        "Não invente políticas de ocultação, limitações, capacidades ou ações.",
-        "Não afirme que executou arquivos, comandos ou testes que não executou.",
-        buildPromptWithConversationContext(
+      updateLoadingMessage(
+        loadingId,
+        "Recuperando contexto persistente do projeto local..."
+      );
+
+      const projectBrokerContext =
+        await fetchProjectBrokerContext(
+          userRequest,
+          "LOCAL_FULL",
+          controller.signal
+        );
+
+      const projectMemoryContext =
+        projectBrokerContext?.context ?? null;
+
+      const localPromptForExecutor =
+        buildLocalExecutorPrompt(
           promptForExecutor,
-          messages
-        ),
-      ].join("\n\n");
+          messages,
+          projectMemoryContext
+        );
 
       const response = await fetch(
         `${LOCAL_AI_BRIDGE_URL}/local-ai/chat`,
