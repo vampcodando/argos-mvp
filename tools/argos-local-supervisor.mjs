@@ -32,16 +32,6 @@ const ALLOWED_MODELS = new Map([
       preferred: true,
     },
   ],
-  [
-    "qwen2.5-coder:7b",
-    {
-      id: "qwen2.5-coder:7b",
-      name: "qwen2.5-coder:7b",
-      size: "4.7 GB",
-      role: "Modelo tecnico para codigo, patches e analise de scripts.",
-      preferred: false,
-    },
-  ],
 ]);
 
 const ALLOWED_ORIGINS = new Set([

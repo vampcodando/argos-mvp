@@ -23,15 +23,6 @@ const ALLOWED_MODELS = new Map([
       preferred: true,
     },
   ],
-  [
-    "qwen2.5-coder:7b",
-    {
-      name: "qwen2.5-coder:7b",
-      size: "4.7 GB",
-      role: "Modelo tecnico para codigo, patches e analise de scripts.",
-      preferred: false,
-    },
-  ],
 ]);
 
 const ALLOWED_ORIGINS = new Set([
@@ -41,6 +32,8 @@ const ALLOWED_ORIGINS = new Set([
 
   "http://127.0.0.1:8788",
   "http://localhost:8788",
+  "http://127.0.0.1:8790",
+  "http://localhost:8790",
 ]);
 
 function isAllowedOrigin(origin) {
@@ -474,19 +467,19 @@ const server = http.createServer(async (request, response) => {
 
   try {
     if (request.method === "GET" && url.pathname === "/local-ai/health") {
-      return handleHealth(response, origin);
+      return await handleHealth(response, origin);
     }
 
     if (request.method === "GET" && url.pathname === "/local-ai/models") {
-      return handleModels(response, origin);
+      return await handleModels(response, origin);
     }
 
     if (request.method === "POST" && url.pathname === "/local-ai/chat") {
-      return handleChat(request, response, origin);
+      return await handleChat(request, response, origin);
     }
 
     if (request.method === "POST" && url.pathname === "/local-ai/hermes/chat") {
-      return handleHermesChat(request, response, origin);
+      return await handleHermesChat(request, response, origin);
     }
 
     return sendJson(response, 404, {
@@ -497,7 +490,7 @@ const server = http.createServer(async (request, response) => {
       },
     }, origin);
   } catch (error) {
-    const status = error.code === "PAYLOAD_TOO_LARGE" ? 413 : 500;
+    const status = error.code === "PAYLOAD_TOO_LARGE" ? 413 : error.code === "INVALID_JSON" ? 400 : 500;
 
     return sendJson(response, status, {
       ok: false,

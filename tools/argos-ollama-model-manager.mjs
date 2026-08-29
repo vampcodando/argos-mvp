@@ -1,10 +1,10 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 
 const OLLAMA_BASE_URL = process.env.ARGOS_OLLAMA_URL || "http://127.0.0.1:11434";
 
 const MODEL_PLAN = [
   { id: "qwen2.5:3b", tier: "leve", priority: 1, role: "chat local geral", action: "manter" },
-  { id: "qwen2.5-coder:7b", tier: "medio", priority: 1, role: "codigo e patches", action: "manter" },
+  { id: "qwen2.5-coder:7b", tier: "reprovado", priority: 99, role: "codigo e patches", action: "nao usar" },
   { id: "hermes3:8b", tier: "medio_alto", priority: 2, role: "planner JSON agente", action: "avaliar depois" },
   { id: "qwen2.5vl:3b", tier: "medio", priority: 3, role: "visao local leve", action: "confirmar suporte" },
   { id: "qwen2.5vl:7b", tier: "pesado", priority: 4, role: "visao local melhor", action: "adiar" },

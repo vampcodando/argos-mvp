@@ -20,12 +20,4 @@ export const DEFAULT_LOCAL_MODEL: LocalModelInfo = {
 
 export const LOCAL_OLLAMA_MODELS: LocalModelInfo[] = [
   DEFAULT_LOCAL_MODEL,
-  {
-    id: "qwen2.5-coder:7b",
-    name: "qwen2.5-coder:7b",
-    endpoint: "127.0.0.1:11434",
-    size: "4.7 GB",
-    role: "Modelo tecnico para codigo, patches e analise de scripts.",
-    status: "heavy",
-  },
 ];

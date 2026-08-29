@@ -1,0 +1,430 @@
+SNAPSHOT DE GUARDA — ARGOS MVP — PROXIMO CHAT
+Data: 2026-06-17
+Projeto local: F:\PDEV\ARGOS-LAB\argos-mvp
+Cloudflare Pages project: argos-mvp
+URL produção: https://argos-mvp-5sz.pages.dev
+Cloudflare Access/team domain: argos-mvp-5sz-pages.cloudflareaccess.com
+
+ATENÇÃO
+Este arquivo é só para guardar o estado e retomar no próximo chat.
+Não execute este texto como comando.
+No próximo chat, comece validando o estado real do projeto com:
+  cd F:\PDEV\ARGOS-LAB\argos-mvp
+  git status --short
+  git log --oneline --decorate -n 12
+  npm run build
+
+============================================================
+1. ESTADO GERAL DO PROJETO
+============================================================
+
+O ARGOS MVP foi avançado nesta etapa com:
+
+1. Login Cloudflare Access com Google.
+2. Session duration da policy em 1 month.
+3. One-time PIN mantido como fallback.
+4. Chat do Mestre com seletor de modelos.
+5. Histórico separado por modelo.
+6. OpenRouter Free integrado no backend.
+7. Gemini integrado para construção de prompt/JSON.
+8. Cloudflare Workers AI / FLUX.1 Schnell integrado para geração de imagem.
+9. Mobile/Android convertido para experiência de chat app com drawer lateral.
+10. Identidade visual com centurião ARGOS acima do chat.
+
+A arquitetura correta no final da etapa é:
+
+  Gemini 2.5 Flash
+  -> usar para construir prompt / JSON / roteiro / comando / prompt negativo.
+
+  Cloudflare Workers AI - FLUX.1 Schnell
+  -> usar para gerar imagem final.
+
+  OpenRouter Free
+  -> usar para chat/texto free approved-only.
+
+  Gemini 2.5 Flash Image
+  -> mantido como tentativa/futuro, mas a chave testada retornou quota 0 para imagem.
+
+============================================================
+2. COMMITS IMPORTANTES CONFIRMADOS
+============================================================
+
+Último log informado no chat antes das correções finais:
+
+  48f7304 (HEAD -> main, origin/main, origin/backup-producao-cloudflare, origin/HEAD, backup-producao-cloudflare) fix: remove duplicacao do provider cloudflare flux
+  8422ab5 feat: adiciona cloudflare flux para imagem no argos
+  5b27d2e feat: adiciona dupla gemini visual no argos
+  3dbe06c feat: adiciona chat mobile com drawer e identidade argos
+  20a0d29 feat: adiciona drawer mobile para android
+  3d9dc22 feat: adiciona layout mobile para android
+  248877c feat: melhora responsividade mobile do chat do mestre
+  330a51f feat: separa historico por modelo no chat do mestre
+
+Depois disso houve tentativa de aplicar correções no provider Cloudflare Image para:
+- corrigir leitura do retorno do FLUX;
+- adaptar o prompt ao limite de 2048 caracteres;
+- corrigir erro de deploy "Unterminated regular expression".
+
+Se o código local estiver quebrado, o próximo chat deve primeiro verificar:
+  git status --short
+  git diff -- functions/api/provider/cloudflare-image.js
+  npm run build
+
+============================================================
+3. ARQUIVOS PRINCIPAIS ENVOLVIDOS
+============================================================
+
+Arquivos principais do ARGOS nesta fase:
+
+  index.html
+  src/main.tsx
+  src/index.css
+  src/mobile.css
+  src/shell/AppShell.tsx
+  src/shell/IconRail.tsx
+  src/shell/Sidebar.tsx
+  src/shell/Topbar.tsx
+  src/shell/Workspace.tsx
+  src/components/MasterChatHome.tsx
+  src/components/BackendHealthBadge.tsx
+  src/app/navigation.ts
+  src/data/localModels.ts
+  src/assets/argos...          (imagem do centurião)
+  functions/api/provider/openrouter.js
+  functions/api/provider/gemini.js
+  functions/api/provider/cloudflare-image.js
+
+Arquivos/pastas que estavam aparecendo como untracked e NÃO deviam entrar em commit sem revisão:
+
+  docs/handoff/
+  docs/snapshots/snapshot-argos-access-logout-team-domain-20260615.zip
+
+Scripts auxiliares que não devem ficar no Git:
+  argos_mobile_drawer_patch.py
+  argos_add_centurion_hero_patch.py
+  argos_gemini_visual_duo_patch_corrigido.py
+  argos_add_cloudflare_flux_provider_patch.py
+  argos_fix_cloudflare_flux_response.py
+  argos_flux_prompt_limit_fix.py
+  argos_fix_cloudflare_image_syntax.py
+  argos_*.py
+
+============================================================
+4. CLOUDFLARE ACCESS / LOGIN
+============================================================
+
+Cloudflare Access configurado para proteger o ARGOS.
+
+Identity Provider:
+  Google adicionado.
+
+Fallback:
+  One-time PIN mantido.
+
+Policy:
+  Allow ARGOS Owner
+
+E-mail autorizado:
+  vampnovoagain@gmail.com
+
+Session duration:
+  1 month
+
+OAuth Google:
+  Authorized JavaScript origins:
+    https://argos-mvp-5sz-pages.cloudflareaccess.com
+
+  Authorized redirect URIs:
+    https://argos-mvp-5sz-pages.cloudflareaccess.com/cdn-cgi/access/callback
+
+Fluxo esperado no Android/notebook:
+  Abrir https://argos-mvp-5sz.pages.dev
+  -> Cloudflare Access
+  -> Login Google
+  -> ARGOS
+
+============================================================
+5. OPENROUTER FREE
+============================================================
+
+Backend:
+  functions/api/provider/openrouter.js
+
+Endpoint:
+  /api/provider/openrouter
+
+Secrets Cloudflare:
+  OPENROUTER_API_KEY
+  OPENROUTER_ENABLED=true
+  OPENROUTER_DEFAULT_MODEL=google/gemma-4-31b-it:free
+
+Regras:
+- somente free approved allowlist;
+- bloquear openrouter/auto;
+- bloquear modelos pagos;
+- uso permitido apenas para marketing/Bruna/BigBoom/QualyShape/TikTok/UGC;
+- bloquear Serviço Social, Alojamento/Celeiro, atletas, familiares, documentos internos, banco, logs, código sensível.
+
+Modelos aprovados:
+  google/gemma-4-31b-it:free
+  google/gemma-4-26b-a4b-it:free
+  qwen/qwen3-next-80b-a3b-instruct:free
+  meta-llama/llama-3.3-70b-instruct:free
+  openai/gpt-oss-120b:free
+  openai/gpt-oss-20b:free
+  qwen/qwen3-coder:free
+  nousresearch/hermes-3-llama-3.1-405b:free
+  nvidia/nemotron-3-super-120b-a12b:free
+  nvidia/nemotron-nano-12b-v2-vl:free
+
+============================================================
+6. GEMINI
+============================================================
+
+Backend:
+  functions/api/provider/gemini.js
+
+Endpoint:
+  /api/provider/gemini
+
+Secrets Cloudflare:
+  GEMINI_API_KEY
+  GEMINI_ENABLED=true
+
+Modelos:
+  gemini-2.5-flash
+  -> usar para construir prompt / JSON / roteiro / comando / prompt negativo.
+
+  gemini-2.5-flash-image
+  -> tentativa para imagem, mas a chave usada retornou quota 0.
+
+Resultado observado:
+- Prompt/JSON funcionou.
+- Imagem Gemini falhou com:
+  Quota exceeded for metric: generate_content_free_tier_requests, limit: 0
+  model: gemini-2.5-flash-preview-image
+
+Decisão:
+  Manter Gemini 2.5 Flash como motor de prompt.
+  Usar FLUX.1 Schnell/Cloudflare Workers AI para imagem.
+
+============================================================
+7. CLOUDFLARE WORKERS AI / FLUX
+============================================================
+
+Backend:
+  functions/api/provider/cloudflare-image.js
+
+Endpoint:
+  /api/provider/cloudflare-image
+
+Cloudflare Pages Binding:
+  Type: Workers AI
+  Variable name: AI
+  Value: Workers AI Catalog
+
+Modelo:
+  @cf/black-forest-labs/flux-1-schnell
+
+Uso no painel:
+  IA IMAGEM / CLOUDFLARE FREE
+  FLUX.1 Schnell
+  USAR PARA IMAGEM
+
+Problemas encontrados:
+1. Primeiro retorno:
+   "Workers AI respondeu sem imagem."
+   Causa provável: parser esperava bytes, mas o Workers AI retorna objeto com image/base64 ou outro shape.
+   Correção planejada/aplicada: extractImageBase64(result) para ler:
+     result.image
+     result.images[0]
+     result.dataURI/dataUri
+     string direta
+     Uint8Array/ArrayBuffer
+
+2. Erro:
+   5006: Error: Length of '/prompt' must be <= 2048
+
+   Decisão:
+   NÃO limitar o Mestre/chat.
+   Apenas adaptar o payload final enviado ao FLUX.
+
+   Correção planejada/aplicada:
+   - no front, para cloudflare_image, enviar só o pedido atual `value`, não promptWithContext;
+   - no backend, aplicar compactFluxPrompt(prompt) com FLUX_PROMPT_LIMIT = 2048;
+   - preservar linhas prioritárias:
+     prompt, imagem, visual, cena, style/estilo, subject, produto, personagem,
+     lighting/iluminacao, camera, composition/composicao, negative/negativo,
+     avoid/evitar.
+
+3. Erro de deploy:
+   Unterminated regular expression
+   functions/api/provider/cloudflare-image.js:106:14
+   .replace(/
+   Causa: patch gerou regex quebrada no JS.
+   Correção final sugerida: reescrever totalmente cloudflare-image.js com uma versão limpa, sem regex quebrada.
+
+============================================================
+8. MOBILE / ANDROID
+============================================================
+
+Arquivos:
+  src/mobile.css
+  src/shell/AppShell.tsx
+
+Decisão:
+  Android não deve exibir layout desktop espremido.
+
+Comportamento alvo:
+  [☰] ARGOS / Mestre
+  chat em tela cheia
+  drawer lateral por cima ao tocar no hambúrguer
+  campo de mensagem embaixo
+  seletor de modelos no botão +
+
+A sidebar desktop não deve ficar fixa no Android.
+
+============================================================
+9. IDENTIDADE VISUAL ARGOS
+============================================================
+
+Imagem do centurião foi colocada em:
+  src/assets/
+
+Nomes possíveis usados nos patches:
+  argos-centurion.png
+  argos-centurion.webp
+  argos-centurion.jpg
+  argos-centurion.jpeg
+  argos.png
+  argos.webp
+  argos.jpg
+  argos.jpeg
+
+No MasterChatHome:
+- imagem centralizada acima do chat;
+- nome ARGOS grande colado no boneco;
+- subtítulo abaixo;
+- chat abaixo.
+
+CSS envolvido:
+  .master-hero
+  .master-hero-image
+  .master-hero-title
+  .master-hero-subtitle
+
+============================================================
+10. REGRA DE SEGURANÇA PERMANENTE
+============================================================
+
+Permitido usar cloud/API:
+  marketing
+  bruna
+  bigboom
+  qualyshape
+  tiktok
+  ugc
+  generic_prompt
+  public_marketing
+  creative_asset
+
+Bloqueado para cloud/API:
+  servico_social
+  alojamento_celeiro
+  institutional_internal
+  source_code
+  technical_log
+  secret_or_token
+  athlete_data
+  family_data
+  social_report
+  institutional_document
+  database_content
+
+Nunca enviar para OpenRouter/Gemini/Workers AI:
+- Serviço Social;
+- Alojamento/Celeiro;
+- dados de atletas;
+- dados familiares;
+- parecer social;
+- documentos internos;
+- banco de dados;
+- logs técnicos sensíveis;
+- código sensível;
+- secrets/tokens.
+
+============================================================
+11. PRIMEIRA MISSÃO DO PRÓXIMO CHAT
+============================================================
+
+Começar com estes comandos:
+
+  cd F:\PDEV\ARGOS-LAB\argos-mvp
+
+  git status --short
+
+  git log --oneline --decorate -n 12
+
+  npm run build
+
+Se build quebrar em cloudflare-image.js:
+  Get-Content .\functions\api\provider\cloudflare-image.js | Select-Object -Skip 90 -First 60
+
+Corrigir especificamente:
+- regex quebrada em `.replace(/`;
+- confirmar que compactFluxPrompt usa regex válidas:
+  .replace(/\r/g, "\n")
+  .replace(/[ \t]+/g, " ")
+  .replace(/\n{3,}/g, "\n\n")
+  .replace(/\s+/g, " ")
+
+Depois:
+  npm run build
+  git status --short
+
+Só depois fazer commit/deploy.
+
+============================================================
+12. COMANDO DE LIMPEZA SE HOUVER SCRIPTS SOLTOS
+============================================================
+
+  Remove-Item .\argos_*.py -ErrorAction SilentlyContinue
+
+Não remover arquivos do projeto.
+Não remover docs/handoff sem confirmar.
+Não commitar ZIPs ou snapshots sem revisar.
+
+============================================================
+13. FECHAMENTO IDEAL
+============================================================
+
+Estado ideal ao encerrar:
+
+  npm run build
+  -> OK
+
+  npm run deploy
+  -> OK
+
+  git log --oneline --decorate -n 10
+  -> main, origin/main, backup-producao-cloudflare, origin/backup-producao-cloudflare e origin/HEAD alinhados no último commit.
+
+  git status --short
+  -> apenas:
+     ?? docs/handoff/
+     ?? docs/snapshots/snapshot-argos-access-logout-team-domain-20260615.zip
+
+Último commit desejado, caso ainda não tenha sido feito:
+  fix: corrige provider cloudflare flux e limite de prompt
+
+============================================================
+14. OBSERVAÇÃO FINAL
+============================================================
+
+O código que quebrou no final foi causado por patch de correção gerando regex inválida dentro de functions/api/provider/cloudflare-image.js.
+
+Prioridade no próximo chat:
+1. recuperar build;
+2. estabilizar cloudflare-image.js;
+3. confirmar FLUX gerando imagem;
+4. só depois fazer novo snapshot/zip.

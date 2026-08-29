@@ -54,10 +54,10 @@ export const ARGOS_ENGINE_CATALOG: ArgosEngine[] = [
     name: "qwen2.5-coder:7b",
     mode: "local",
     kind: "text",
-    status: "installed",
+    status: "disabled",
     paidApi: false,
     sensitiveDataAllowed: true,
-    notes: "Modelo local já existente para código, patches e análise técnica.",
+    notes: "Modelo reprovado nos testes do ARGOS; permanece apenas como registro e nao pode ser selecionado.",
   },
   {
     id: "ollama-hermes3-8b",
