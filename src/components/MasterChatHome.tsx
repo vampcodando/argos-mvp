@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import argosHero from "../assets/argos-centurion.png";
 import { processAttachmentsForPrompt } from "../utils/attachmentProcessor";
 import {
@@ -22,7 +24,7 @@ import {
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
 const LOCAL_PROJECT_MEMORY_URL = "http://127.0.0.1:8789";
-const LOCAL_REASONING_GATEWAY_URL = "http://127.0.0.1:8791";
+const REMOTE_REASONING_API_BASE = "/api/reasoning";
 const LOCAL_FALLBACK_MODEL_ID = "qwen2.5:3b";
 const LOCAL_EXECUTOR_PROMPT_BUDGET = 5600;
 const LOCAL_MEMORY_CONTEXT_BUDGET = 1600;
@@ -1439,7 +1441,7 @@ export function MasterChatHome() {
     const refreshReasoningHealth = async () => {
       try {
         const response = await fetch(
-          `${LOCAL_REASONING_GATEWAY_URL}/reasoning/health`,
+          `${REMOTE_REASONING_API_BASE}/health`,
           {
             method: "GET",
             cache: "no-store",
@@ -2113,7 +2115,7 @@ export function MasterChatHome() {
             : null;
 
         const response = await fetch(
-          `${LOCAL_REASONING_GATEWAY_URL}/reasoning/chat`,
+          `${REMOTE_REASONING_API_BASE}/chat`,
           {
             method: "POST",
             headers: {
@@ -2151,6 +2153,12 @@ export function MasterChatHome() {
           );
         }
 
+        const reasoningModelName = String(
+          payload.modelName ||
+          payload.modelKey ||
+          "Reasoning Pool"
+        ).trim();
+
         setMessages((current) =>
           current.map((message) =>
             message.id === loadingId
@@ -2158,7 +2166,7 @@ export function MasterChatHome() {
                   ...message,
                   text: finalResponse,
                   status: "normal",
-                  label: "ARGOS — Reasoning Pool",
+                  label: `ARGOS — ${reasoningModelName}`,
                 }
               : message
           )
@@ -2725,7 +2733,18 @@ export function MasterChatHome() {
                 </button>
               ) : null}
             </div>
-            <p>{message.text}</p>
+            {message.role === "master" &&
+            message.status !== "loading" ? (
+              <div className="master-chat-markdown">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                >
+                  {message.text}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <p>{message.text}</p>
+            )}
             {message.imageBase64 ? (
               <img
                 className="master-chat-image-result"

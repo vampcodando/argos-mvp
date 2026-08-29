@@ -27,7 +27,9 @@
     "pdfjs-dist": "6.1.200",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
     "read-excel-file": "9.2.0",
+    "remark-gfm": "^4.0.1",
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
