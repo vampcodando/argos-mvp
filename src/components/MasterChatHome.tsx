@@ -1436,7 +1436,7 @@ export function MasterChatHome() {
   useEffect(() => {
     refreshSupervisorStatus();
 
-    void (async () => {
+    const refreshReasoningHealth = async () => {
       try {
         const response = await fetch(
           `${LOCAL_REASONING_GATEWAY_URL}/reasoning/health`,
@@ -1460,12 +1460,19 @@ export function MasterChatHome() {
       } catch {
         setReasoningAiStatus("off");
       }
-    })();
+    };
+
+    void refreshReasoningHealth();
+
+    const reasoningHealthInterval = window.setInterval(() => {
+      void refreshReasoningHealth();
+    }, 10000);
 
     refreshOnlineStatus();
 
     return () => {
       abortRef.current?.abort();
+      window.clearInterval(reasoningHealthInterval);
 
       if (copyResetTimerRef.current !== null) {
         window.clearTimeout(copyResetTimerRef.current);
@@ -2065,12 +2072,15 @@ export function MasterChatHome() {
         ? buildPromptWithToolContext(value, toolContext)
         : promptInput;
 
+      let forceLocalFallback = false;
+
       if (
         reasoningAiStatus === "online" &&
         attachmentsForRequest.length === 0 &&
         !activeZipProject
       ) {
-        updateLoadingMessage(
+        try {
+          updateLoadingMessage(
           loadingId,
           "Consultando o Reasoning Pool do ARGOS..."
         );
@@ -2157,9 +2167,37 @@ export function MasterChatHome() {
         setAttachments([]);
         setAttachmentNotice("");
         return;
+        } catch (error) {
+          if (
+            controller.signal.aborted ||
+            (error instanceof Error && error.name === "AbortError")
+          ) {
+            throw error;
+          }
+
+          setReasoningAiStatus("off");
+
+          const reasoningFailure =
+            error instanceof Error
+              ? error.message
+              : "Falha desconhecida no Reasoning Pool.";
+
+          if (localAiStatus !== "online") {
+            throw new Error(
+              `Reasoning Pool indisponível e IA local desligada. ${reasoningFailure}`
+            );
+          }
+
+          forceLocalFallback = true;
+
+          updateLoadingMessage(
+            loadingId,
+            "Reasoning Pool indisponível. Usando fallback local..."
+          );
+        }
       }
 
-      if (onlineAiStatus === "online") {
+      if (onlineAiStatus === "online" && !forceLocalFallback) {
         updateLoadingMessage(
           loadingId,
           preparedCloudImages.length
