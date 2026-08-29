@@ -22,6 +22,7 @@ import {
 const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
 const LOCAL_PROJECT_MEMORY_URL = "http://127.0.0.1:8789";
+const LOCAL_REASONING_GATEWAY_URL = "http://127.0.0.1:8791";
 const LOCAL_FALLBACK_MODEL_ID = "qwen2.5:3b";
 const LOCAL_EXECUTOR_PROMPT_BUDGET = 5600;
 const LOCAL_MEMORY_CONTEXT_BUDGET = 1600;
@@ -116,6 +117,13 @@ type PreparedCloudImage = {
 type LocalAiStatus = "checking" | "off" | "partial" | "starting" | "online" | "stopping" | "error";
 
 type OnlineAiStatus = "checking" | "online" | "off" | "error";
+type ReasoningAiStatus = "checking" | "online" | "off" | "error";
+
+type ReasoningGatewayStatusPayload = {
+  ok: boolean;
+  ready: boolean;
+  configuredModelCount?: number;
+};
 
 type OnlineGatewayStatusPayload = {
   ok: boolean;
@@ -1405,6 +1413,8 @@ export function MasterChatHome() {
   const [sending, setSending] = useState(false);
   const [activeLoadingId, setActiveLoadingId] = useState<string | null>(null);
   const [localAiStatus, setLocalAiStatus] = useState<LocalAiStatus>("checking");
+  const [reasoningAiStatus, setReasoningAiStatus] =
+    useState<ReasoningAiStatus>("checking");
   const [onlineAiStatus, setOnlineAiStatus] = useState<OnlineAiStatus>("checking");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentNotice, setAttachmentNotice] = useState("");
@@ -1425,6 +1435,33 @@ export function MasterChatHome() {
 
   useEffect(() => {
     refreshSupervisorStatus();
+
+    void (async () => {
+      try {
+        const response = await fetch(
+          `${LOCAL_REASONING_GATEWAY_URL}/reasoning/health`,
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: {
+              accept: "application/json",
+            },
+          }
+        );
+
+        const payload =
+          (await response.json()) as ReasoningGatewayStatusPayload;
+
+        setReasoningAiStatus(
+          response.ok && payload.ok && payload.ready
+            ? "online"
+            : "off"
+        );
+      } catch {
+        setReasoningAiStatus("off");
+      }
+    })();
+
     refreshOnlineStatus();
 
     return () => {
@@ -1666,6 +1703,7 @@ export function MasterChatHome() {
     }
   }
 
+
   async function refreshOnlineStatus() {
     setOnlineAiStatus("checking");
 
@@ -1886,13 +1924,17 @@ export function MasterChatHome() {
     abortRef.current = controller;
 
     const executorLabel =
-      onlineAiStatus === "online"
-        ? imageAttachments.length
-          ? "visão online"
-          : "executor online"
-        : localAiStatus === "online"
-          ? LOCAL_FALLBACK_MODEL_ID
-          : null;
+      imageAttachments.length && onlineAiStatus === "online"
+        ? "visão online"
+        : reasoningAiStatus === "online" &&
+            attachmentsForRequest.length === 0 &&
+            !activeZipProjectRef.current
+          ? "Reasoning Pool"
+          : onlineAiStatus === "online"
+            ? "executor online"
+            : localAiStatus === "online"
+              ? LOCAL_FALLBACK_MODEL_ID
+              : null;
 
     setMessages((current) => [
       ...current,
@@ -2022,6 +2064,100 @@ export function MasterChatHome() {
       const promptForExecutor = toolContext
         ? buildPromptWithToolContext(value, toolContext)
         : promptInput;
+
+      if (
+        reasoningAiStatus === "online" &&
+        attachmentsForRequest.length === 0 &&
+        !activeZipProject
+      ) {
+        updateLoadingMessage(
+          loadingId,
+          "Consultando o Reasoning Pool do ARGOS..."
+        );
+
+        const reasoningMessages = buildOnlineMessages(
+          messages,
+          promptForExecutor,
+          [],
+          "",
+          36
+        );
+
+        const reasoningProjectBroker =
+          await fetchProjectBrokerContext(
+            userRequest,
+            "CLOUD_PROJECT",
+            controller.signal
+          );
+
+        const serializedReasoningProjectContext =
+          reasoningProjectBroker
+            ? JSON.stringify(reasoningProjectBroker)
+            : "";
+
+        const reasoningProjectContext =
+          serializedReasoningProjectContext.length > 0 &&
+          serializedReasoningProjectContext.length <=
+            CLOUD_PROJECT_CONTEXT_BUDGET
+            ? reasoningProjectBroker
+            : null;
+
+        const response = await fetch(
+          `${LOCAL_REASONING_GATEWAY_URL}/reasoning/chat`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              accept: "application/json",
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+              dataClass: reasoningProjectContext
+                ? "project_context_sanitized"
+                : "generic_chat",
+              projectContext: reasoningProjectContext,
+              messages: reasoningMessages,
+              max_tokens: 12000,
+            }),
+          }
+        );
+
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+          throw new Error(
+            payload?.reason ||
+              "Falha ao consultar o Reasoning Pool do ARGOS."
+          );
+        }
+
+        const finalResponse = String(
+          payload.response || ""
+        ).trim();
+
+        if (!finalResponse) {
+          throw new Error(
+            "O Reasoning Pool respondeu sem conteúdo."
+          );
+        }
+
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === loadingId
+              ? {
+                  ...message,
+                  text: finalResponse,
+                  status: "normal",
+                  label: "ARGOS — Reasoning Pool",
+                }
+              : message
+          )
+        );
+
+        setAttachments([]);
+        setAttachmentNotice("");
+        return;
+      }
 
       if (onlineAiStatus === "online") {
         updateLoadingMessage(
@@ -2433,6 +2569,15 @@ export function MasterChatHome() {
     }
   }
 
+  const reasoningStatusLabel =
+    reasoningAiStatus === "checking"
+      ? "Reasoning Pool: verificando"
+      : reasoningAiStatus === "online"
+        ? "Reasoning Pool: disponível"
+        : reasoningAiStatus === "error"
+          ? "Reasoning Pool: erro"
+          : "Reasoning Pool: indisponível";
+
   const onlineStatusLabel =
     onlineAiStatus === "checking"
       ? "ARGOS online: verificando"
@@ -2466,6 +2611,7 @@ export function MasterChatHome() {
         </div>
 
         <div className="master-chat-flags">
+          <span>{reasoningStatusLabel}</span>
           <span>{onlineStatusLabel}</span>
 
           <span className={`local-ai-status local-ai-status-${localAiStatus}`}>
