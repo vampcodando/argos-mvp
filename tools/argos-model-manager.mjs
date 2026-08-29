@@ -104,6 +104,7 @@ const runtimeState = new Map(
       lastFailureAt: null,
       lastFailureCode: null,
       lastFailureReason: null,
+      lastFailureLatencyMs: null,
       lastSuccessAt: null,
       lastLatencyMs: null,
       lastRouteId: null,
@@ -359,6 +360,7 @@ function markSuccess(model, routeId, latencyMs) {
   state.circuitOpenUntil = 0;
   state.lastFailureCode = null;
   state.lastFailureReason = null;
+  state.lastFailureLatencyMs = null;
   state.lastSuccessAt = new Date().toISOString();
   state.lastLatencyMs = latencyMs;
   state.lastRouteId = routeId;
@@ -368,6 +370,7 @@ function markFailure(model, {
   code,
   reason,
   routeId = null,
+  latencyMs = null,
   cooldownMs = DEFAULT_FAILURE_COOLDOWN_MS,
 }) {
   const state = getState(model.key);
@@ -383,6 +386,7 @@ function markFailure(model, {
   state.lastFailureAt = new Date().toISOString();
   state.lastFailureCode = code;
   state.lastFailureReason = String(reason || "Falha desconhecida.").slice(0, 1200);
+  state.lastFailureLatencyMs = Number.isFinite(latencyMs) ? latencyMs : null;
   state.lastRouteId = routeId;
 }
 
@@ -614,6 +618,7 @@ export async function getReasoningPoolStatus({ probeCatalog = true } = {}) {
         consecutiveFailures: state.consecutiveFailures,
         lastFailureAt: state.lastFailureAt,
         lastFailureCode: state.lastFailureCode,
+        lastFailureLatencyMs: state.lastFailureLatencyMs,
         lastSuccessAt: state.lastSuccessAt,
         lastLatencyMs: state.lastLatencyMs,
       };
@@ -734,6 +739,7 @@ export async function callReasoningPool({
       code: result.code,
       reason: result.reason,
       routeId: resolved.id,
+      latencyMs: result.latencyMs,
       cooldownMs: result.cooldownMs,
     });
   }
