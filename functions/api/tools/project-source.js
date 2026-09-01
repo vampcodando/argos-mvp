@@ -233,6 +233,17 @@ async function getCommit(env) {
   };
 }
 
+async function resolveSnapshotCommitSha(env) {
+  const commit = await getCommit(env);
+  const commitSha = String(commit?.sha || "");
+
+  if (!commitSha) {
+    throw new Error("GitHub nao retornou o commit atual da main.");
+  }
+
+  return commitSha;
+}
+
 async function getTree(env) {
   const branch = await githubJson(
     `https://api.github.com/repos/${ALLOWED_REPOSITORY}/branches/${encodeURIComponent(ALLOWED_REF)}`,
@@ -286,13 +297,23 @@ async function getTree(env) {
   };
 }
 
-async function readFile(path, env) {
+async function readFile(path, env, requestedCommitSha = null) {
+  if (!SEARCHABLE_EXTENSIONS.has(extensionOf(path))) {
+    throw Object.assign(
+      new Error("Project Source permite leitura apenas de arquivos textuais aprovados."),
+      { status: 415 },
+    );
+  }
+
+  const commitSha =
+    String(requestedCommitSha || "").trim() ||
+    (await resolveSnapshotCommitSha(env));
   const encodedPath = path
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
   const payload = await githubJson(
-    `https://api.github.com/repos/${ALLOWED_REPOSITORY}/contents/${encodedPath}?ref=${encodeURIComponent(ALLOWED_REF)}`,
+    `https://api.github.com/repos/${ALLOWED_REPOSITORY}/contents/${encodedPath}?ref=${encodeURIComponent(commitSha)}`,
     env,
   );
 
@@ -312,15 +333,22 @@ async function readFile(path, env) {
 
   if (payload?.encoding !== "base64" || typeof payload?.content !== "string") {
     throw Object.assign(new Error("Arquivo nao retornou conteudo textual Base64 legivel."), {
-      status: 415 },
-    );
+      status: 415,
+    });
   }
 
   const text = decodeBase64Utf8(payload.content);
+  if (text.includes("\0")) {
+    throw Object.assign(
+      new Error("Arquivo binario ou nao textual bloqueado pelo Project Source."),
+      { status: 415 },
+    );
+  }
 
   return {
     path,
     ref: ALLOWED_REF,
+    commitSha,
     sha: payload.sha,
     size,
     lineCount: text.split("\n").length,
@@ -381,12 +409,12 @@ async function tryIndexedSearch(query, env) {
   }
 }
 
-async function verifyIndexedMatches(query, indexedItems, env) {
+async function verifyIndexedMatches(query, indexedItems, env, commitSha) {
   const verified = [];
 
   for (const item of indexedItems.slice(0, MAX_SEARCH_RESULTS)) {
     try {
-      const file = await readFile(item.path, env);
+      const file = await readFile(item.path, env, commitSha);
       verified.push(
         ...findTextMatches(file.text, query, {
           path: file.path,
@@ -487,7 +515,13 @@ async function searchCode(query, env) {
   const indexed = await tryIndexedSearch(q, env);
 
   if (indexed.ok && indexed.items.length > 0) {
-    const verified = await verifyIndexedMatches(q, indexed.items, env);
+    const commitSha = await resolveSnapshotCommitSha(env);
+    const verified = await verifyIndexedMatches(
+      q,
+      indexed.items,
+      env,
+      commitSha,
+    );
 
     if (verified.length > 0) {
       return {
@@ -496,6 +530,7 @@ async function searchCode(query, env) {
         method: "github-index+verified-content",
         githubIndexAvailable: true,
         githubIndexTotalCount: indexed.totalCount,
+        commitSha,
         count: verified.length,
         items: verified,
       };
@@ -597,6 +632,7 @@ export async function onRequestGet({ request, env }) {
         file: {
           path: file.path,
           ref: file.ref,
+          commitSha: file.commitSha,
           sha: file.sha,
           size: file.size,
           lineCount: file.lineCount,
@@ -625,6 +661,7 @@ export async function onRequestGet({ request, env }) {
       file: {
         path: file.path,
         ref: file.ref,
+        commitSha: file.commitSha,
         sha: file.sha,
         size: file.size,
         lineCount: file.lineCount,

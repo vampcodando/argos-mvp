@@ -80,6 +80,29 @@ const ARCHITECTURE_ANCHORS = Object.freeze({
   ],
 });
 
+const STRUCTURED_BLOCK_SPECS = Object.freeze([
+  Object.freeze({
+    term: "REMOTE_REASONING_POOL",
+    path: "functions/api/reasoning/chat.js",
+    kind: "array",
+  }),
+  Object.freeze({
+    term: "buildRoutingOrder",
+    path: "functions/api/reasoning/chat.js",
+    kind: "function",
+  }),
+  Object.freeze({
+    term: "IMAGE_POOL",
+    path: "functions/api/media/generate.js",
+    kind: "array",
+  }),
+  Object.freeze({
+    term: "VIDEO_POOL",
+    path: "functions/api/media/generate.js",
+    kind: "array",
+  }),
+]);
+
 function normalize(value) {
   return String(value || "")
     .normalize("NFD")
@@ -352,6 +375,68 @@ function contextRadius(term) {
   return 6;
 }
 
+function findStructuredEvidence(text, spec, item) {
+  const lines = String(text || "").split("\n");
+  const declarationIndex = lines.findIndex((line) => {
+    if (!line.includes(spec.term)) {
+      return false;
+    }
+
+    if (spec.kind === "function") {
+      return line.includes(`function ${spec.term}`);
+    }
+
+    return line.includes(`const ${spec.term}`);
+  });
+
+  if (declarationIndex < 0) {
+    return null;
+  }
+
+  const open = spec.kind === "function" ? "{" : "[";
+  const close = spec.kind === "function" ? "}" : "]";
+  let depth = 0;
+  let started = false;
+  let endIndex = declarationIndex;
+  const maxEnd = Math.min(lines.length - 1, declarationIndex + 120);
+
+  for (let index = declarationIndex; index <= maxEnd; index += 1) {
+    for (const character of lines[index]) {
+      if (character === open) {
+        depth += 1;
+        started = true;
+      } else if (character === close && started) {
+        depth -= 1;
+      }
+    }
+
+    endIndex = index;
+
+    if (started && depth === 0) {
+      break;
+    }
+  }
+
+  if (!started || depth !== 0) {
+    return null;
+  }
+
+  const excerpt = lines
+    .slice(declarationIndex, endIndex + 1)
+    .map((line, offset) => `${declarationIndex + offset + 1}: ${line}`)
+    .join("\n");
+
+  return {
+    term: spec.term,
+    path: item.path,
+    sha: item.sha,
+    line: declarationIndex + 1,
+    startLine: declarationIndex + 1,
+    endLine: endIndex + 1,
+    excerpt,
+  };
+}
+
 function findEvidence(text, term, item) {
   const needle = String(term || "").toLowerCase();
   const lines = String(text || "").split("\n");
@@ -418,22 +503,73 @@ async function buildProjectContext(prompt, env) {
 
   const perTermCounts = new Map(terms.map((term) => [term, 0]));
   const evidence = [];
+  const selectedByPath = new Map(
+    selected.map((item) => [item.path, item])
+  );
+  const textCache = new Map();
+  const scannedPaths = new Set();
   let scannedFiles = 0;
+
+  const getSelectedText = async (item) => {
+    if (textCache.has(item.path)) {
+      return textCache.get(item.path);
+    }
+
+    let text = null;
+    try {
+      text = await readBlobText(item, env);
+    } catch {
+      text = null;
+    }
+
+    textCache.set(item.path, text);
+    scannedPaths.add(item.path);
+    return text;
+  };
+
+  for (const spec of STRUCTURED_BLOCK_SPECS) {
+    if (!terms.includes(spec.term)) {
+      continue;
+    }
+
+    const item = selectedByPath.get(spec.path);
+    if (!item) {
+      continue;
+    }
+
+    const text = await getSelectedText(item);
+    if (!text) {
+      continue;
+    }
+
+    const structuredEvidence = findStructuredEvidence(
+      text,
+      spec,
+      item,
+    );
+
+    if (!structuredEvidence) {
+      continue;
+    }
+
+    evidence.push(structuredEvidence);
+    perTermCounts.set(spec.term, MAX_MATCHES_PER_TERM);
+
+    if (evidence.length >= MAX_EVIDENCE_ITEMS) {
+      break;
+    }
+  }
 
   for (let offset = 0; offset < selected.length; offset += SEARCH_BATCH_SIZE) {
     const batch = selected.slice(offset, offset + SEARCH_BATCH_SIZE);
     const results = await Promise.all(
-      batch.map(async (item) => {
-        try {
-          const text = await readBlobText(item, env);
-          return { item, text };
-        } catch {
-          return { item, text: null };
-        }
-      }),
+      batch.map(async (item) => ({
+        item,
+        text: await getSelectedText(item),
+      })),
     );
 
-    scannedFiles += batch.length;
+    scannedFiles = scannedPaths.size;
 
     for (const result of results) {
       if (!result.text) {

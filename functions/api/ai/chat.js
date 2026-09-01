@@ -38,6 +38,7 @@ const ALLOWED_TOOL_NAMES = new Set([
   "github-repo",
   "read-url",
   "web-research",
+  "project-source",
 ]);
 const ALLOWED_TOOL_READERS = new Set(["fetch", "browser"]);
 
