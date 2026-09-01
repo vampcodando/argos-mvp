@@ -6,6 +6,31 @@ const MAX_TREE_ITEMS = 1200;
 const MAX_FILE_BYTES = 350_000;
 const MAX_RANGE_LINES = 240;
 const MAX_SEARCH_RESULTS = 20;
+const MAX_MATCHES_PER_FILE = 4;
+const MAX_FALLBACK_SEARCH_FILES = 120;
+const MAX_FALLBACK_SEARCH_BYTES = 6_000_000;
+const SEARCH_BATCH_SIZE = 8;
+
+const SEARCHABLE_EXTENSIONS = new Set([
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".ts",
+  ".tsx",
+  ".jsx",
+  ".json",
+  ".md",
+  ".txt",
+  ".css",
+  ".html",
+  ".toml",
+  ".yml",
+  ".yaml",
+  ".py",
+  ".ps1",
+  ".cmd",
+  ".sh",
+]);
 
 const BLOCKED_PATH_PATTERNS = [
   /(^|\/)\.env(?:\.|$)/i,
@@ -107,6 +132,75 @@ function addLineNumbers(text, startLine = 1) {
     .split("\n")
     .map((line, index) => `${startLine + index}: ${line}`)
     .join("\n");
+}
+
+function extensionOf(path) {
+  const match = String(path || "").toLowerCase().match(/(\.[a-z0-9]+)$/);
+  return match ? match[1] : "";
+}
+
+function isSearchableTreeItem(item) {
+  const path = normalizePath(item?.path);
+  const size = Number(item?.size || 0);
+
+  if (!path || item?.type !== "blob" || !item?.sha) {
+    return false;
+  }
+
+  if (size <= 0 || size > MAX_FILE_BYTES) {
+    return false;
+  }
+
+  if (/package-lock\.json$/i.test(path)) {
+    return false;
+  }
+
+  return SEARCHABLE_EXTENSIONS.has(extensionOf(path));
+}
+
+function searchPriority(path) {
+  const value = String(path || "");
+  if (value.startsWith("functions/")) return 0;
+  if (value.startsWith("src/")) return 1;
+  if (value.startsWith("tools/")) return 2;
+  if (value.startsWith("workers/")) return 3;
+  if (value.startsWith("scripts/")) return 4;
+  if (value.startsWith("docs/")) return 5;
+  return 6;
+}
+
+function findTextMatches(text, query, item) {
+  const needle = String(query || "").toLowerCase();
+  const lines = String(text || "").split("\n");
+  const matches = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].toLowerCase().includes(needle)) {
+      continue;
+    }
+
+    const startIndex = Math.max(0, index - 1);
+    const endIndex = Math.min(lines.length - 1, index + 1);
+    const excerpt = lines
+      .slice(startIndex, endIndex + 1)
+      .map((line, offset) => `${startIndex + offset + 1}: ${line}`)
+      .join("\n");
+
+    matches.push({
+      path: item.path,
+      sha: item.sha,
+      line: index + 1,
+      startLine: startIndex + 1,
+      endLine: endIndex + 1,
+      excerpt,
+    });
+
+    if (matches.length >= MAX_MATCHES_PER_FILE) {
+      break;
+    }
+  }
+
+  return matches;
 }
 
 async function getRepositoryMetadata(env) {
@@ -218,8 +312,8 @@ async function readFile(path, env) {
 
   if (payload?.encoding !== "base64" || typeof payload?.content !== "string") {
     throw Object.assign(new Error("Arquivo nao retornou conteudo textual Base64 legivel."), {
-      status: 415,
-    });
+      status: 415 },
+    );
   }
 
   const text = decodeBase64Utf8(payload.content);
@@ -234,6 +328,153 @@ async function readFile(path, env) {
   };
 }
 
+async function readBlobText(item, env) {
+  const payload = await githubJson(
+    `https://api.github.com/repos/${ALLOWED_REPOSITORY}/git/blobs/${encodeURIComponent(item.sha)}`,
+    env,
+  );
+
+  if (payload?.encoding !== "base64" || typeof payload?.content !== "string") {
+    return null;
+  }
+
+  const text = decodeBase64Utf8(payload.content);
+  if (text.includes("\0")) {
+    return null;
+  }
+
+  return text;
+}
+
+async function tryIndexedSearch(query, env) {
+  try {
+    const search = encodeURIComponent(`${query} repo:${ALLOWED_REPOSITORY}`);
+    const payload = await githubJson(
+      `https://api.github.com/search/code?q=${search}&per_page=${MAX_SEARCH_RESULTS}`,
+      env,
+    );
+
+    const items = Array.isArray(payload?.items)
+      ? payload.items
+          .filter((item) => normalizePath(item?.path))
+          .slice(0, MAX_SEARCH_RESULTS)
+          .map((item) => ({
+            path: item.path,
+            name: item.name,
+            sha: item.sha,
+            htmlUrl: item.html_url,
+          }))
+      : [];
+
+    return {
+      ok: true,
+      totalCount: Number(payload?.total_count || 0),
+      items,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      totalCount: 0,
+      items: [],
+      reason: error?.message || "GitHub Code Search indisponivel.",
+    };
+  }
+}
+
+async function verifyIndexedMatches(query, indexedItems, env) {
+  const verified = [];
+
+  for (const item of indexedItems.slice(0, MAX_SEARCH_RESULTS)) {
+    try {
+      const file = await readFile(item.path, env);
+      verified.push(
+        ...findTextMatches(file.text, query, {
+          path: file.path,
+          sha: file.sha,
+        }),
+      );
+    } catch {
+      // Se um item indexado nao puder ser lido, continuamos com os demais.
+    }
+
+    if (verified.length >= MAX_SEARCH_RESULTS) {
+      break;
+    }
+  }
+
+  return verified.slice(0, MAX_SEARCH_RESULTS);
+}
+
+async function fallbackSearchCode(query, env) {
+  const tree = await getTree(env);
+  const candidates = tree.items
+    .filter(isSearchableTreeItem)
+    .sort((a, b) => {
+      const priority = searchPriority(a.path) - searchPriority(b.path);
+      return priority || String(a.path).localeCompare(String(b.path));
+    });
+
+  const selected = [];
+  let selectedBytes = 0;
+
+  for (const item of candidates) {
+    const size = Number(item.size || 0);
+
+    if (selected.length >= MAX_FALLBACK_SEARCH_FILES) {
+      break;
+    }
+
+    if (selectedBytes + size > MAX_FALLBACK_SEARCH_BYTES) {
+      continue;
+    }
+
+    selected.push(item);
+    selectedBytes += size;
+  }
+
+  const matches = [];
+  let scannedFiles = 0;
+
+  for (let offset = 0; offset < selected.length; offset += SEARCH_BATCH_SIZE) {
+    const batch = selected.slice(offset, offset + SEARCH_BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map(async (item) => {
+        try {
+          const text = await readBlobText(item, env);
+          return text ? findTextMatches(text, query, item) : [];
+        } catch {
+          return [];
+        }
+      }),
+    );
+
+    scannedFiles += batch.length;
+
+    for (const itemMatches of results) {
+      matches.push(...itemMatches);
+      if (matches.length >= MAX_SEARCH_RESULTS) {
+        break;
+      }
+    }
+
+    if (matches.length >= MAX_SEARCH_RESULTS) {
+      break;
+    }
+  }
+
+  return {
+    method: "direct-tree-scan",
+    commitSha: tree.commitSha,
+    candidateFiles: candidates.length,
+    selectedFiles: selected.length,
+    scannedFiles,
+    selectedBytes,
+    truncatedByFileLimit: candidates.length > selected.length,
+    truncatedByTree: tree.truncatedByGitHub || tree.truncatedByArgos,
+    items: matches.slice(0, MAX_SEARCH_RESULTS),
+  };
+}
+
 async function searchCode(query, env) {
   const q = String(query || "").trim();
 
@@ -243,30 +484,44 @@ async function searchCode(query, env) {
     });
   }
 
-  const search = encodeURIComponent(`${q} repo:${ALLOWED_REPOSITORY}`);
-  const payload = await githubJson(
-    `https://api.github.com/search/code?q=${search}&per_page=${MAX_SEARCH_RESULTS}`,
-    env,
-  );
+  const indexed = await tryIndexedSearch(q, env);
 
-  const items = Array.isArray(payload?.items)
-    ? payload.items
-        .filter((item) => normalizePath(item?.path))
-        .slice(0, MAX_SEARCH_RESULTS)
-        .map((item) => ({
-          path: item.path,
-          name: item.name,
-          sha: item.sha,
-          htmlUrl: item.html_url,
-        }))
-    : [];
+  if (indexed.ok && indexed.items.length > 0) {
+    const verified = await verifyIndexedMatches(q, indexed.items, env);
+
+    if (verified.length > 0) {
+      return {
+        query: q,
+        ref: ALLOWED_REF,
+        method: "github-index+verified-content",
+        githubIndexAvailable: true,
+        githubIndexTotalCount: indexed.totalCount,
+        count: verified.length,
+        items: verified,
+      };
+    }
+  }
+
+  const fallback = await fallbackSearchCode(q, env);
 
   return {
     query: q,
     ref: ALLOWED_REF,
-    totalCount: Number(payload?.total_count || 0),
-    count: items.length,
-    items,
+    method: fallback.method,
+    githubIndexAvailable: indexed.ok && indexed.items.length > 0,
+    githubIndexTotalCount: indexed.totalCount,
+    githubIndexReason: indexed.ok
+      ? "GitHub Code Search sem resultados verificaveis; usado fallback direto."
+      : indexed.reason,
+    commitSha: fallback.commitSha,
+    candidateFiles: fallback.candidateFiles,
+    selectedFiles: fallback.selectedFiles,
+    scannedFiles: fallback.scannedFiles,
+    selectedBytes: fallback.selectedBytes,
+    truncatedByFileLimit: fallback.truncatedByFileLimit,
+    truncatedByTree: fallback.truncatedByTree,
+    count: fallback.items.length,
+    items: fallback.items,
   };
 }
 
