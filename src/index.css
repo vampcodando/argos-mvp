@@ -1866,3 +1866,199 @@
   border-top: 1px solid var(--border);
   margin: 1rem 0;
 }
+
+/* ARGOS_MEDIA_POOL_FRONTEND_V1 START */
+.master-attachment-controls {
+  align-items: flex-start;
+}
+
+.master-media-toggle.is-active {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.master-media-panel {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0.65rem 0;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--panel) 82%, var(--bg));
+  display: grid;
+  gap: 0.7rem;
+}
+
+.master-media-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.master-media-panel-head > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.master-media-panel-head strong {
+  color: var(--fg);
+}
+
+.master-media-panel-head span,
+.master-media-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.master-media-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.master-media-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.master-media-tabs button,
+.master-media-card-actions button,
+.master-media-card-actions a,
+.master-media-reference-chip button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  color: var(--fg);
+  padding: 0.5rem 0.72rem;
+  cursor: pointer;
+  text-decoration: none;
+  font: inherit;
+}
+
+.master-media-tabs button.is-active {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.master-media-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.master-media-options-image {
+  grid-template-columns: minmax(150px, 240px);
+}
+
+.master-media-options label {
+  min-width: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.master-media-options label > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.master-media-options select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  color: var(--fg);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 0.65rem;
+  padding: 0.55rem 0.65rem;
+}
+
+.master-media-hint {
+  margin: 0;
+}
+
+.master-media-reference-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  color: var(--muted);
+}
+
+.master-media-card {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.7rem;
+  padding: 0.65rem;
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  overflow: hidden;
+}
+
+.master-media-result {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 64vh;
+  object-fit: contain;
+  border-radius: 0.7rem;
+  background: #000;
+}
+
+.master-media-video {
+  aspect-ratio: 16 / 9;
+}
+
+.master-media-generating {
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  color: var(--muted);
+}
+
+.master-media-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: argos-media-spin 0.85s linear infinite;
+}
+
+@keyframes argos-media-spin {
+  to { transform: rotate(360deg); }
+}
+
+.master-media-card-meta,
+.master-media-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.55rem;
+}
+
+.master-media-card-meta span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.45rem;
+}
+/* ARGOS_MEDIA_POOL_FRONTEND_V1 END */
+

@@ -460,3 +460,247 @@
   }
 }
 
+/* ARGOS_MEDIA_POOL_FRONTEND_V1 START */
+@media (max-width: 820px), ((max-width: 1024px) and (pointer: coarse)) {
+  .master-chat-composer {
+    max-height: min(58dvh, 520px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+
+  .master-attachment-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, auto));
+    gap: 0.45rem;
+    align-items: start;
+  }
+
+  .master-attachment-help {
+    grid-column: 1 / -1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .master-media-panel {
+    margin: 0.5rem 0;
+    padding: 0.7rem;
+  }
+
+  .master-media-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .master-media-options,
+  .master-media-options-image {
+    grid-template-columns: 1fr;
+  }
+
+  .master-media-options select {
+    min-height: 42px;
+    font-size: 1rem;
+  }
+
+  .master-media-result {
+    width: 100%;
+    max-width: 100%;
+    max-height: 44dvh;
+  }
+
+  .master-media-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .master-media-card-actions > * {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+  }
+}
+
+@media (max-width: 390px) {
+  .master-attachment-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .master-attachment-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .master-media-card-actions {
+    grid-template-columns: 1fr;
+  }
+}
+/* ARGOS_MEDIA_POOL_FRONTEND_V1 END */
+
+/* ARGOS_MEDIA_POOL_MOBILE_DRAWER_FIX_V1 START */
+.master-clear-label-mobile {
+  display: none;
+}
+
+@media (max-width: 820px), ((max-width: 1024px) and (pointer: coarse)) {
+  /* O composer cresce no fluxo normal; nada fica recortado por uma rolagem interna. */
+  .master-chat-composer {
+    max-height: none !important;
+    overflow: visible !important;
+    overscroll-behavior: auto !important;
+  }
+
+  /* Ao abrir a gaveta de mídia, o hero cede espaço em vez de competir com o composer. */
+  .master-chat-home.is-media-drawer-open .master-chat-center {
+    display: none !important;
+  }
+
+  .master-chat-home.is-media-drawer-open .master-chat-history {
+    min-height: 0 !important;
+    padding-top: 0 !important;
+  }
+
+  .master-chat-home.is-media-drawer-open .master-chat-composer textarea {
+    min-height: 3.6rem !important;
+    max-height: 6rem !important;
+  }
+
+  /* A linha superior fica limpa: arquivo + mídia. O texto longo não ocupa a tela móvel. */
+  .master-attachment-controls {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.45rem !important;
+    align-items: center !important;
+  }
+
+  .master-attachment-help {
+    display: none !important;
+  }
+
+  .master-attachment-button {
+    width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  /* Media Pool funciona como gaveta inline compacta, nunca como modal/overlay. */
+  .master-media-panel {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    margin: 0.45rem 0 !important;
+    padding: 0.62rem !important;
+    gap: 0.5rem !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+  }
+
+  .master-media-panel-head {
+    align-items: center !important;
+  }
+
+  .master-media-panel-head > div {
+    gap: 0 !important;
+  }
+
+  .master-media-panel-head > div > span,
+  .master-media-hint {
+    display: none !important;
+  }
+
+  .master-media-close {
+    width: 34px !important;
+    height: 34px !important;
+    min-width: 34px !important;
+  }
+
+  .master-media-tabs {
+    gap: 0.4rem !important;
+  }
+
+  .master-media-tabs button {
+    min-height: 40px;
+    padding: 0.42rem 0.55rem !important;
+  }
+
+  .master-media-options,
+  .master-media-options-image {
+    grid-template-columns: 1fr !important;
+    gap: 0.42rem !important;
+  }
+
+  .master-media-options label {
+    min-width: 0 !important;
+    gap: 0.3rem !important;
+  }
+
+  .master-media-options select {
+    min-height: 40px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Barra inferior em uma única linha: limpar | modo | enviar. */
+  .master-chat-toolbar {
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr) 42px !important;
+    grid-template-rows: 42px !important;
+    align-items: center !important;
+    gap: 0.45rem !important;
+    width: 100% !important;
+  }
+
+  .master-chat-toolbar > .local-ai-connect-button {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 84px !important;
+    height: 38px !important;
+    padding: 0 0.62rem !important;
+    white-space: nowrap !important;
+    justify-self: start !important;
+  }
+
+  .chat-mode-toggle {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    justify-self: end !important;
+  }
+
+  .chat-send-button,
+  .chat-send-button-cancel {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px !important;
+    justify-self: end !important;
+  }
+
+  .master-clear-label-desktop {
+    display: none !important;
+  }
+
+  .master-clear-label-mobile {
+    display: inline !important;
+  }
+}
+
+/* Em telas muito estreitas, cada opção volta a empilhar para evitar aperto. */
+@media (min-width: 360px) and (max-width: 820px) {
+  .master-media-options label {
+    grid-template-columns: 78px minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+  }
+
+  .master-media-options-image label {
+    grid-template-columns: 78px minmax(0, 1fr) !important;
+  }
+}
+/* ARGOS_MEDIA_POOL_MOBILE_DRAWER_FIX_V1 END */
+
