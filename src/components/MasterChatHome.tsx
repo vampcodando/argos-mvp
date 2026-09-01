@@ -39,6 +39,23 @@ const LEGACY_MASTER_CHAT_STORAGE_KEY = "argos.masterChat.messages.v1";
 const LEGACY_MASTER_CHAT_STORAGE_PREFIX = "argos.masterChat.messagesByModel.v1";
 const LEGACY_MASTER_CHAT_SELECTED_MODEL_KEY = "argos.masterChat.selectedModel.v1";
 
+// ARGOS_MEDIA_POOL_FRONTEND_V1
+type MediaKind = "image" | "video";
+type MediaStatus = "generating" | "succeeded" | "failed";
+
+type MediaMessage = {
+  kind: MediaKind;
+  status: MediaStatus;
+  url?: string;
+  taskId?: string;
+  prompt?: string;
+  size?: string;
+  resolution?: string;
+  ratio?: string;
+  duration?: number;
+  error?: string;
+};
+
 type ChatMessage = {
   id: string;
   role: "master" | "user";
@@ -47,6 +64,7 @@ type ChatMessage = {
   label?: string;
   imageBase64?: string;
   imageMimeType?: string;
+  media?: MediaMessage;
 };
 
 type PendingAttachment = {
@@ -1420,6 +1438,14 @@ export function MasterChatHome() {
   const [onlineAiStatus, setOnlineAiStatus] = useState<OnlineAiStatus>("checking");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentNotice, setAttachmentNotice] = useState("");
+  const [mediaPanelOpen, setMediaPanelOpen] = useState(false);
+  const [mediaKind, setMediaKind] = useState<MediaKind>("image");
+  const [mediaImageSize, setMediaImageSize] = useState("2K");
+  const [mediaVideoRatio, setMediaVideoRatio] = useState("16:9");
+  const [mediaVideoResolution, setMediaVideoResolution] = useState("480p");
+  const [mediaVideoDuration, setMediaVideoDuration] = useState(5);
+  const [mediaVideoAudio, setMediaVideoAudio] = useState(false);
+  const [mediaReferenceUrls, setMediaReferenceUrls] = useState<string[]>([]);
   const [activeZipProjectSummary, setActiveZipProjectSummary] =
     useState<ZipProjectSummary | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<{
@@ -1856,6 +1882,304 @@ export function MasterChatHome() {
     ]);
   }
 
+  async function submitMediaRequest(
+    kind: MediaKind,
+    prompt: string,
+    attachmentsForRequest: PendingAttachment[]
+  ) {
+    if (!prompt.trim()) {
+      setAttachmentNotice("Descreva o que o ARGOS deve gerar antes de enviar.");
+      return;
+    }
+
+    const nonImageAttachments = attachmentsForRequest.filter(
+      (attachment) => !isCloudImageAttachment(attachment.file)
+    );
+
+    if (nonImageAttachments.length) {
+      setAttachmentNotice(
+        "No modo Mídia, use apenas imagens como referência. Remova documentos ou ZIPs antes de gerar."
+      );
+      return;
+    }
+
+    const imageAttachments = attachmentsForRequest.filter(
+      (attachment) => isCloudImageAttachment(attachment.file)
+    );
+
+    if (imageAttachments.length > 2) {
+      setAttachmentNotice(
+        "No Media Pool V1, use no máximo 2 imagens de referência por geração."
+      );
+      return;
+    }
+
+    const loadingId = createId();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const userMessage: ChatMessage = {
+      id: createId(),
+      role: "user",
+      text: prompt,
+    };
+
+    const initialMedia: MediaMessage = {
+      kind,
+      status: "generating",
+      prompt,
+      resolution: kind === "video" ? mediaVideoResolution : undefined,
+      ratio: kind === "video" ? mediaVideoRatio : undefined,
+      duration: kind === "video" ? mediaVideoDuration : undefined,
+      size: kind === "image" ? mediaImageSize : undefined,
+    };
+
+    setMessages((current) => [
+      ...current,
+      userMessage,
+      {
+        id: loadingId,
+        role: "master",
+        label: "ARGOS — Media Pool",
+        text:
+          kind === "image"
+            ? "Gerando imagem no Media Pool..."
+            : "Iniciando geração de vídeo no Media Pool...",
+        status: "loading",
+        media: initialMedia,
+      },
+    ]);
+
+    setDraft("");
+    setSending(true);
+    setActiveLoadingId(loadingId);
+    setMediaPanelOpen(false);
+    setAttachmentNotice("");
+
+    const savedReferenceUrls = [...mediaReferenceUrls];
+    setMediaReferenceUrls([]);
+
+    try {
+      let preparedAttachmentUrls: string[] = [];
+
+      if (imageAttachments.length) {
+        updateLoadingMessage(
+          loadingId,
+          imageAttachments.length === 1
+            ? "Preparando imagem de referência para o Media Pool..."
+            : "Preparando imagens de referência para o Media Pool..."
+        );
+
+        const prepared = await Promise.all(
+          imageAttachments.map((attachment) =>
+            prepareCloudImage(attachment.file)
+          )
+        );
+
+        preparedAttachmentUrls = prepared.map((image) => image.dataUrl);
+      }
+
+      const referenceImages = [
+        ...savedReferenceUrls,
+        ...preparedAttachmentUrls,
+      ].slice(0, 2);
+
+      const requestBody =
+        kind === "image"
+          ? {
+              mediaType: "image",
+              prompt,
+              size: mediaImageSize,
+              images: referenceImages,
+              watermark: false,
+              dataClass: "creative_asset",
+            }
+          : {
+              mediaType: "video",
+              prompt,
+              images: referenceImages,
+              ratio: mediaVideoRatio,
+              resolution: mediaVideoResolution,
+              duration: mediaVideoDuration,
+              generateAudio: mediaVideoAudio,
+              draft: mediaVideoResolution === "480p",
+              dataClass: "creative_asset",
+            };
+
+      const response = await fetch("/api/media/generate", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        signal: controller.signal,
+        body: JSON.stringify(requestBody),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.ok) {
+        throw new Error(
+          payload?.reason ||
+            payload?.error?.message ||
+            "Falha ao gerar mídia no ARGOS."
+        );
+      }
+
+      if (kind === "image") {
+        const imageUrl = String(payload?.image?.url || "").trim();
+
+        if (!imageUrl) {
+          throw new Error("O Media Pool respondeu sem URL da imagem.");
+        }
+
+        updateLoadingMessage(
+          loadingId,
+          payload?.fallbackUsed
+            ? "Imagem gerada pelo Media Pool com fallback gratuito."
+            : "Imagem gerada pelo Media Pool.",
+          "normal",
+          {
+            label: "ARGOS — Media Pool",
+            media: {
+              kind: "image",
+              status: "succeeded",
+              url: imageUrl,
+              prompt,
+              size: payload?.image?.size || mediaImageSize,
+            },
+          }
+        );
+        setAttachments([]);
+        return;
+      }
+
+      const taskId = String(payload?.task?.id || "").trim();
+
+      if (!taskId) {
+        throw new Error("O Media Pool respondeu sem task id do vídeo.");
+      }
+
+      updateLoadingMessage(
+        loadingId,
+        "Vídeo em processamento...",
+        "loading",
+        {
+          label: "ARGOS — Media Pool",
+          media: {
+            ...initialMedia,
+            taskId,
+          },
+        }
+      );
+
+      for (let attempt = 0; attempt < 90; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+
+        const statusResponse = await fetch(
+          "/api/media/video-status?id=" + encodeURIComponent(taskId),
+          {
+            method: "GET",
+            cache: "no-store",
+            headers: { accept: "application/json" },
+            signal: controller.signal,
+          }
+        );
+
+        const statusPayload = await statusResponse.json();
+
+        if (!statusResponse.ok || !statusPayload?.ok) {
+          throw new Error(
+            statusPayload?.reason || "Falha ao consultar o vídeo gerado."
+          );
+        }
+
+        const task = statusPayload.task || {};
+        const taskStatus = String(task.status || "").toLowerCase();
+
+        if (taskStatus === "succeeded") {
+          const videoUrl = String(task.videoUrl || "").trim();
+
+          if (!videoUrl) {
+            throw new Error("O vídeo concluiu sem URL de reprodução.");
+          }
+
+          updateLoadingMessage(
+            loadingId,
+            "Vídeo concluído pelo Media Pool.",
+            "normal",
+            {
+              label: "ARGOS — Media Pool",
+              media: {
+                kind: "video",
+                status: "succeeded",
+                url: videoUrl,
+                taskId,
+                prompt,
+                resolution: task.resolution || mediaVideoResolution,
+                ratio: task.ratio || mediaVideoRatio,
+                duration: task.duration || mediaVideoDuration,
+              },
+            }
+          );
+          setAttachments([]);
+          return;
+        }
+
+        if (["failed", "error", "cancelled", "canceled"].includes(taskStatus)) {
+          throw new Error(
+            task?.error?.message || "A geração do vídeo falhou no provedor."
+          );
+        }
+
+        updateLoadingMessage(
+          loadingId,
+          taskStatus === "queued"
+            ? "Vídeo na fila do Media Pool..."
+            : "Vídeo em processamento...",
+          "loading",
+          {
+            label: "ARGOS — Media Pool",
+            media: {
+              ...initialMedia,
+              taskId,
+            },
+          }
+        );
+      }
+
+      throw new Error("Tempo limite atingido aguardando o vídeo.");
+    } catch (error) {
+      const cancelled =
+        error instanceof DOMException && error.name === "AbortError";
+      const reason = cancelled
+        ? "Geração de mídia cancelada pelo usuário."
+        : error instanceof Error
+          ? error.message
+          : "Erro desconhecido no Media Pool.";
+
+      updateLoadingMessage(
+        loadingId,
+        reason,
+        "error",
+        {
+          label: "ARGOS — Media Pool",
+          media: {
+            ...initialMedia,
+            status: "failed",
+            error: reason,
+          },
+        }
+      );
+    } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
+      setSending(false);
+      setActiveLoadingId(null);
+    }
+  }
+
   async function handleSubmit() {
     if (sending) {
       cancelCurrentRequest();
@@ -1866,6 +2190,11 @@ export function MasterChatHome() {
     const attachmentsForRequest = [...attachments];
 
     if (!value && !attachmentsForRequest.length) {
+      return;
+    }
+
+    if (mediaPanelOpen) {
+      await submitMediaRequest(mediaKind, value, attachmentsForRequest);
       return;
     }
 
@@ -2649,7 +2978,11 @@ export function MasterChatHome() {
                 : "IA local: desligada";
 
   return (
-    <section className="master-chat-home" aria-label="Painel do ARGOS">
+    <section
+      className={`master-chat-home ${mediaPanelOpen ? "is-media-drawer-open" : ""}`}
+      aria-label="Painel do ARGOS"
+      data-media-mobile-fix="ARGOS_MEDIA_POOL_MOBILE_DRAWER_FIX_V1"
+    >
       <div className="master-chat-center">
         <div className="master-hero">
           <img src={argosHero} alt="Centuriao ARGOS" className="master-hero-image" />
@@ -2752,6 +3085,91 @@ export function MasterChatHome() {
                 alt="Imagem gerada pelo ARGOS"
               />
             ) : null}
+            {message.media ? (
+              <div className={`master-media-card master-media-card-${message.media.kind}`}>
+                {message.media.kind === "image" && message.media.url ? (
+                  <img
+                    className="master-media-result"
+                    src={message.media.url}
+                    alt="Imagem gerada pelo Media Pool do ARGOS"
+                  />
+                ) : null}
+
+                {message.media.kind === "video" &&
+                message.media.status === "succeeded" &&
+                message.media.url ? (
+                  <video
+                    className="master-media-result master-media-video"
+                    src={message.media.url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                  />
+                ) : null}
+
+                {message.media.status === "generating" ? (
+                  <div className="master-media-generating" role="status">
+                    <span className="master-media-spinner" aria-hidden="true" />
+                    <strong>
+                      {message.media.kind === "video"
+                        ? "Gerando vídeo..."
+                        : "Gerando imagem..."}
+                    </strong>
+                  </div>
+                ) : null}
+
+                <div className="master-media-card-meta">
+                  <span>{message.media.kind === "image" ? "Imagem" : "Vídeo"}</span>
+                  {message.media.size ? <span>{message.media.size}</span> : null}
+                  {message.media.resolution ? <span>{message.media.resolution}</span> : null}
+                  {message.media.ratio ? <span>{message.media.ratio}</span> : null}
+                  {message.media.duration ? <span>{message.media.duration}s</span> : null}
+                </div>
+
+                {message.media.status === "succeeded" ? (
+                  <div className="master-media-card-actions">
+                    {message.media.url ? (
+                      <a
+                        href={message.media.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Abrir mídia
+                      </a>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMediaKind(message.media?.kind || "image");
+                        setDraft(message.media?.prompt || "");
+                        setMediaPanelOpen(true);
+                      }}
+                      disabled={sending}
+                    >
+                      Criar variação
+                    </button>
+
+                    {message.media.kind === "image" && message.media.url ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMediaReferenceUrls([message.media?.url || ""].filter(Boolean));
+                          setMediaKind("video");
+                          setMediaPanelOpen(true);
+                          setAttachmentNotice(
+                            "Imagem gerada selecionada como referência HTTPS para a próxima mídia."
+                          );
+                        }}
+                        disabled={sending}
+                      >
+                        Usar como referência
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </article>
         ))}
       </div>
@@ -2779,6 +3197,18 @@ export function MasterChatHome() {
             }
           >
             Enviar arquivo
+          </button>
+
+          <button
+            type="button"
+            className={`master-attachment-button master-media-toggle ${
+              mediaPanelOpen ? "is-active" : ""
+            }`}
+            onClick={() => setMediaPanelOpen((current) => !current)}
+            disabled={sending}
+            aria-expanded={mediaPanelOpen}
+          >
+            Mídia {mediaPanelOpen ? "▲" : ""}
           </button>
 
           <p className="master-attachment-help">
@@ -2878,6 +3308,134 @@ export function MasterChatHome() {
           </p>
         ) : null}
 
+        {mediaPanelOpen ? (
+          <section className="master-media-panel" aria-label="Configuração do Media Pool">
+            <div className="master-media-panel-head">
+              <div>
+                <strong>Media Pool</strong>
+                <span>gratuito · fail-closed · sem fallback pago automático</span>
+              </div>
+              <button
+                type="button"
+                className="master-media-close"
+                onClick={() => setMediaPanelOpen(false)}
+                disabled={sending}
+                aria-label="Fechar painel de mídia"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="master-media-tabs" role="tablist" aria-label="Tipo de mídia">
+              <button
+                type="button"
+                className={mediaKind === "image" ? "is-active" : ""}
+                onClick={() => setMediaKind("image")}
+                disabled={sending}
+              >
+                Imagem
+              </button>
+              <button
+                type="button"
+                className={mediaKind === "video" ? "is-active" : ""}
+                onClick={() => setMediaKind("video")}
+                disabled={sending}
+              >
+                Vídeo
+              </button>
+            </div>
+
+            {mediaReferenceUrls.length ? (
+              <div className="master-media-reference-chip">
+                <span>1 referência HTTPS ativa</span>
+                <button
+                  type="button"
+                  onClick={() => setMediaReferenceUrls([])}
+                  disabled={sending}
+                >
+                  remover
+                </button>
+              </div>
+            ) : null}
+
+            {mediaKind === "image" ? (
+              <div className="master-media-options master-media-options-image">
+                <label>
+                  <span>Qualidade</span>
+                  <select
+                    value={mediaImageSize}
+                    onChange={(event) => setMediaImageSize(event.target.value)}
+                    disabled={sending}
+                  >
+                    <option value="2K">2K</option>
+                    <option value="4K">4K</option>
+                  </select>
+                </label>
+              </div>
+            ) : (
+              <div className="master-media-options">
+                <label>
+                  <span>Formato</span>
+                  <select
+                    value={mediaVideoRatio}
+                    onChange={(event) => setMediaVideoRatio(event.target.value)}
+                    disabled={sending}
+                  >
+                    <option value="16:9">16:9</option>
+                    <option value="9:16">9:16</option>
+                    <option value="1:1">1:1</option>
+                    <option value="4:3">4:3</option>
+                    <option value="3:4">3:4</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Duração</span>
+                  <select
+                    value={mediaVideoDuration}
+                    onChange={(event) => setMediaVideoDuration(Number(event.target.value))}
+                    disabled={sending}
+                  >
+                    <option value={5}>5 segundos</option>
+                    <option value={8}>8 segundos</option>
+                    <option value={10}>10 segundos</option>
+                    <option value={12}>12 segundos</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Qualidade</span>
+                  <select
+                    value={mediaVideoResolution}
+                    onChange={(event) => setMediaVideoResolution(event.target.value)}
+                    disabled={sending}
+                  >
+                    <option value="480p">480p · econômico</option>
+                    <option value="720p">720p</option>
+                    <option value="1080p">1080p</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Áudio</span>
+                  <select
+                    value={mediaVideoAudio ? "yes" : "no"}
+                    onChange={(event) => setMediaVideoAudio(event.target.value === "yes")}
+                    disabled={sending}
+                  >
+                    <option value="no">Sem áudio</option>
+                    <option value="yes">Com áudio</option>
+                  </select>
+                </label>
+              </div>
+            )}
+
+            <p className="master-media-hint">
+              Use o mesmo campo de mensagem abaixo como prompt. Imagens anexadas podem servir como referência.
+            </p>
+          </section>
+        ) : null}
+
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -2893,7 +3451,8 @@ export function MasterChatHome() {
             onClick={handleClearChat}
             disabled={sending}
           >
-            limpar conversa
+            <span className="master-clear-label-desktop">limpar conversa</span>
+            <span className="master-clear-label-mobile">limpar</span>
           </button>
 
           <div className="chat-mode-toggle" aria-label="Modo do chat">
