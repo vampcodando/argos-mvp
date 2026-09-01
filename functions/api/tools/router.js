@@ -35,7 +35,6 @@ function extractGitHubRepoFromUrl(rawUrl) {
 
 function extractRepoSlug(prompt) {
   const text = String(prompt || "");
-
   const url = extractFirstUrl(text);
 
   if (url) {
@@ -46,22 +45,27 @@ function extractRepoSlug(prompt) {
     }
   }
 
-  const repoMatch = text.match(
-    /\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/,
-  );
+  const explicitPatterns = [
+    /\b(?:repo|repositorio|repositório|repository)\s*[:=]?\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/i,
+    /\bgithub\s*[:=]?\s*([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/i,
+  ];
 
-  if (!repoMatch) {
-    return null;
+  for (const pattern of explicitPatterns) {
+    const match = text.match(pattern);
+
+    if (!match) {
+      continue;
+    }
+
+    const candidate = match[1].replace(/\.git$/i, "");
+    const [owner, repo] = candidate.split("/");
+
+    if (owner && repo) {
+      return candidate;
+    }
   }
 
-  const candidate = repoMatch[1].replace(/\.git$/i, "");
-  const [owner, repo] = candidate.split("/");
-
-  if (!owner || !repo) {
-    return null;
-  }
-
-  return candidate;
+  return null;
 }
 
 function hasGitHubIntent(prompt) {
@@ -308,7 +312,7 @@ export async function onRequestPost({ request }) {
           tool: "github-repo",
           endpoint: buildGitHubEndpoint(repo),
           reason:
-            "Pergunta exige consulta de repositorio GitHub.",
+            "Pergunta exige consulta de repositorio GitHub explicitamente identificado.",
         },
         promptPreview: prompt.slice(0, 220),
       });
