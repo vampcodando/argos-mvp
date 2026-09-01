@@ -1,4 +1,4 @@
-﻿import { jsonResponse } from "./_toolPolicy.js";
+import { jsonResponse } from "./_toolPolicy.js";
 
 function normalize(value) {
   return String(value || "")
@@ -80,6 +80,50 @@ function hasGitHubIntent(prompt) {
     text.includes("consulte o repositorio") ||
     text.includes("veja o status")
   );
+}
+
+function hasProjectSourceIntent(prompt) {
+  const text = normalize(prompt);
+
+  const explicitSelfProjectTerms = [
+    "seu projeto",
+    "proprio projeto",
+    "projeto argos",
+    "seu codigo",
+    "proprio codigo",
+    "codigo do argos",
+    "arquitetura do argos",
+    "como o argos funciona",
+    "como voce funciona",
+    "o que voce consegue fazer",
+    "quais capacidades voce tem",
+    "quais modelos voce usa",
+    "modelos do argos",
+    "sua arvore de decisao",
+    "arvore de decisao do argos",
+    "seu fluxo de decisao",
+    "project source",
+  ];
+
+  if (explicitSelfProjectTerms.some((term) => text.includes(term))) {
+    return true;
+  }
+
+  const auditTerms = [
+    "audite",
+    "auditar",
+    "auditoria",
+    "analise sua arquitetura",
+    "analise o argos",
+    "capabilidades do argos",
+    "capacidades do argos",
+    "roteamento do argos",
+    "reasoning pool",
+    "media pool",
+    "project memory",
+  ];
+
+  return auditTerms.some((term) => text.includes(term));
 }
 
 function hasWeatherIntent(prompt) {
@@ -279,6 +323,14 @@ function buildGitHubEndpoint(repo) {
   return `/api/tools/github-repo?${params.toString()}`;
 }
 
+function buildProjectSourceEndpoint(prompt) {
+  const params = new URLSearchParams({
+    q: String(prompt || "").trim(),
+  });
+
+  return `/api/tools/project-source-context?${params.toString()}`;
+}
+
 function buildWebResearchEndpoint(prompt) {
   const params = new URLSearchParams({
     q: String(prompt || "").trim(),
@@ -300,6 +352,20 @@ export async function onRequestPost({ request }) {
     const prompt = String(body.prompt || "");
     const url = extractFirstUrl(prompt);
     const repo = extractRepoSlug(prompt);
+
+    if (hasProjectSourceIntent(prompt)) {
+      return jsonResponse({
+        ok: true,
+        tool: "router",
+        detection: {
+          tool: "project-source",
+          endpoint: buildProjectSourceEndpoint(prompt),
+          reason:
+            "Pergunta exige inspecao read-only do codigo e da arquitetura do proprio ARGOS.",
+        },
+        promptPreview: prompt.slice(0, 220),
+      });
+    }
 
     if (
       repo &&
@@ -389,6 +455,7 @@ export async function onRequestGet() {
     tool: "router",
     usage: "POST JSON { prompt: string }",
     detects: [
+      "project-source",
       "weather",
       "read-url",
       "github-repo",
