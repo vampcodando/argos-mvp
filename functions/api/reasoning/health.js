@@ -9,12 +9,12 @@ const REMOTE_REASONING_POOL = Object.freeze([
     freeOnly: true,
   }),
   Object.freeze({
-    key: "glm-5.2",
-    name: "GLM 5.2",
+    key: "glm-5.3-flash",
+    name: "GLM 5.3 Flash",
     priority: 2,
-    provider: "openrouter",
-    modelId: "z-ai/glm-5.2:free",
-    secretName: "OPENROUTER_API_KEY",
+    provider: "bai",
+    modelId: "glm-5.3-flash",
+    secretName: "BAI_API_KEY",
     freeOnly: true,
   }),
   Object.freeze({

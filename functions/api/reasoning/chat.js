@@ -1,6 +1,9 @@
 const OPENROUTER_ENDPOINT =
   "https://openrouter.ai/api/v1/chat/completions";
 
+const BAI_ENDPOINT =
+  "https://api.b.ai/v1/chat/completions";
+
 const GEMINI_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
@@ -41,12 +44,13 @@ const REMOTE_REASONING_POOL = Object.freeze([
     timeoutMs: 45_000,
   }),
   Object.freeze({
-    key: "glm-5.2",
-    name: "GLM 5.2",
-    provider: "openrouter",
-    modelId: "z-ai/glm-5.2:free",
-    secretName: "OPENROUTER_API_KEY",
-    timeoutMs: 45_000,
+    key: "glm-5.3-flash",
+    name: "GLM 5.3 Flash",
+    provider: "bai",
+    modelId: "glm-5.3-flash",
+    secretName: "BAI_API_KEY",
+    timeoutMs: 180_000,
+    reasoningEffort: "high",
   }),
   Object.freeze({
     key: "gemini-2.5-flash",
@@ -350,19 +354,19 @@ function classifyTaskType(messages) {
 function buildRoutingOrder(taskType) {
   const routingTable = {
     coding: [
-      "glm-5.2",
+      "glm-5.3-flash",
       "minimax-m3",
       "gemini-2.5-flash",
     ],
     reasoning: [
       "minimax-m3",
-      "glm-5.2",
+      "glm-5.3-flash",
       "gemini-2.5-flash",
     ],
     fast: [
       "gemini-2.5-flash",
       "minimax-m3",
-      "glm-5.2",
+      "glm-5.3-flash",
     ],
   };
 
@@ -645,6 +649,63 @@ async function callOpenRouter(
   };
 }
 
+async function callBai(
+  model,
+  env,
+  messages,
+  maxTokens
+) {
+  const response = await fetchWithTimeout(
+    BAI_ENDPOINT,
+    {
+      method: "POST",
+      headers: {
+        authorization:
+          `Bearer ${env.BAI_API_KEY}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        model: model.modelId,
+        messages,
+        reasoning_effort:
+          model.reasoningEffort || "high",
+        stream: false,
+        max_tokens: maxTokens,
+      }),
+    },
+    model.timeoutMs
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      `B.AI ${response.status}: ${
+        data?.error?.message ||
+        data?.message ||
+        "falha na rota GLM"
+      }`
+    );
+  }
+
+  const text = extractOpenAiText(data);
+
+  if (!text) {
+    const finishReason =
+      data?.choices?.[0]?.finish_reason || "unknown";
+
+    throw new Error(
+      `B.AI respondeu sem conteudo final (finish=${finishReason}).`
+    );
+  }
+
+  return {
+    text,
+    usage: data?.usage || null,
+  };
+}
+
 function convertToGemini(messages) {
   const systemParts = [];
   const contents = [];
@@ -742,6 +803,15 @@ async function callModel(
 ) {
   if (model.provider === "openrouter") {
     return callOpenRouter(
+      model,
+      env,
+      messages,
+      maxTokens
+    );
+  }
+
+  if (model.provider === "bai") {
+    return callBai(
       model,
       env,
       messages,
