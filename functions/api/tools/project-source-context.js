@@ -621,10 +621,19 @@ async function buildProjectContext(prompt, env) {
 
   const readFiles = successfulReadPaths.size;
   const failedFiles = failedPaths.size;
-  const ignoredFiles = Math.max(
+
+  const excludedFiles = Math.max(
     0,
-    candidates.length - scannedPaths.size,
+    candidates.length - selected.length,
   );
+
+  const unscannedSelectedFiles = Math.max(
+    0,
+    selected.length - scannedPaths.size,
+  );
+
+  const ignoredFiles =
+    excludedFiles + unscannedSelectedFiles;
 
   const treeLimitReached =
     tree.truncatedByGitHub || tree.truncatedByArgos;
@@ -648,6 +657,8 @@ async function buildProjectContext(prompt, env) {
     scannedFiles: scannedPaths.size,
     readFiles,
     ignoredFiles,
+    excludedFiles,
+    unscannedSelectedFiles,
     failedFiles,
     failedPaths: [...failedPaths],
     selectedBytes,
