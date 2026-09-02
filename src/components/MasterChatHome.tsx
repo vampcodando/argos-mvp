@@ -1331,7 +1331,15 @@ function buildPromptWithToolContext(currentPrompt: string, toolContext: ArgosToo
       "Ao falar da arquitetura ou das capacidades do ARGOS, cite as evidências no formato [caminho:linhaInicial-linhaFinal @ commit].",
       "O commit válido para as evidências é context.commitSha; não invente outro commit.",
       "Diferencie configuração presente no código de estado real de execução, disponibilidade ou quota.",
-      "Se truncatedByFileLimit ou truncatedByTree for true, não declare auditoria integral do repositório; delimite objetivamente a cobertura.",
+      "Interprete context.confidence como confianca deterministica na cobertura da auditoria, nunca como probabilidade de a conclusao estar correta.",
+      "Nao recalcule, aumente ou diminua context.confidence; use exatamente level, score e reasons fornecidos pelo Audit Engine.",
+      "Interprete coverage.selection como cobertura dos arquivos candidatos elegiveis selecionados e coverage.inspection como a fracao dos selecionados efetivamente inspecionada.",
+      "Interprete coverage.readSuccess como sucesso das leituras realmente tentadas e coverage.byteInspection como cobertura de bytes dentro do conjunto selecionado.",
+      "coverage.terms mede somente os termos de auditoria selecionados para a consulta; mesmo 100% nao significa que 100% do repositorio ou da arquitetura foi auditado.",
+      "Se limitsReached.subrequestBudget for true, informe que a auditoria atingiu o limite operacional de leituras; nao trate arquivos nao inspecionados por esse motivo como failedFiles.",
+      "failedFiles representa somente falhas reais entre leituras tentadas. unscannedSelectedFiles representa arquivos selecionados que nao chegaram a ser inspecionados.",
+      "Se auditMode for deep e houver limite operacional atingido, descreva a auditoria como profunda dentro do orcamento disponivel, nunca como auditoria integral.",
+      "Se truncatedByFileLimit, truncatedByTree ou qualquer limitsReached relevante for true, nao declare auditoria integral do repositorio; delimite objetivamente a cobertura.",
       "Se a evidência não sustentar uma capacidade, diga que ela não foi comprovada em vez de inferir.",
       "Priorize responder à pergunta do Mestre e use as citações como prova, sem mencionar router, endpoint ou JSON."
     );
