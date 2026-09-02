@@ -4,9 +4,19 @@ const ALLOWED_REPOSITORY = "vampcodando/argos-mvp";
 const ALLOWED_REF = "main";
 const MAX_TREE_ITEMS = 1200;
 const MAX_FILE_BYTES = 350_000;
-const MAX_INSPECT_FILES = 80;
-const MAX_INSPECT_BYTES = 4_000_000;
-const MAX_EVIDENCE_ITEMS = 18;
+const AUDIT_PROFILES = Object.freeze({
+  quick: Object.freeze({
+    maxInspectFiles: 80,
+    maxInspectBytes: 4_000_000,
+    maxEvidenceItems: 18,
+  }),
+  deep: Object.freeze({
+    maxInspectFiles: 160,
+    maxInspectBytes: 8_000_000,
+    maxEvidenceItems: 32,
+  }),
+});
+
 const MAX_MATCHES_PER_TERM = 2;
 const SEARCH_BATCH_SIZE = 8;
 
@@ -484,9 +494,15 @@ function coveragePercent(numerator, denominator) {
   return Number(((value / total) * 100).toFixed(1));
 }
 
-async function buildProjectContext(prompt, env) {
+async function buildProjectContext(
+  prompt,
+  env,
+  requestedMode = "quick",
+) {
   const startedAt = Date.now();
-  const auditMode = "quick";
+  const auditMode =
+    requestedMode === "deep" ? "deep" : "quick";
+  const auditProfile = AUDIT_PROFILES[auditMode];
   const terms = inferInspectionTerms(prompt);
   const tree = await getTree(env);
   const candidates = tree.items
@@ -503,11 +519,11 @@ async function buildProjectContext(prompt, env) {
   for (const item of candidates) {
     const size = Number(item.size || 0);
 
-    if (selected.length >= MAX_INSPECT_FILES) {
+    if (selected.length >= auditProfile.maxInspectFiles) {
       break;
     }
 
-    if (selectedBytes + size > MAX_INSPECT_BYTES) {
+    if (selectedBytes + size > auditProfile.maxInspectBytes) {
       byteLimitReached = true;
       continue;
     }
@@ -580,7 +596,7 @@ async function buildProjectContext(prompt, env) {
     evidence.push(structuredEvidence);
     perTermCounts.set(spec.term, MAX_MATCHES_PER_TERM);
 
-    if (evidence.length >= MAX_EVIDENCE_ITEMS) {
+    if (evidence.length >= auditProfile.maxEvidenceItems) {
       break;
     }
   }
@@ -610,22 +626,22 @@ async function buildProjectContext(prompt, env) {
           evidence.push(match);
           perTermCounts.set(term, (perTermCounts.get(term) || 0) + 1);
 
-          if (evidence.length >= MAX_EVIDENCE_ITEMS) {
+          if (evidence.length >= auditProfile.maxEvidenceItems) {
             break;
           }
         }
 
-        if (evidence.length >= MAX_EVIDENCE_ITEMS) {
+        if (evidence.length >= auditProfile.maxEvidenceItems) {
           break;
         }
       }
 
-      if (evidence.length >= MAX_EVIDENCE_ITEMS) {
+      if (evidence.length >= auditProfile.maxEvidenceItems) {
         break;
       }
     }
 
-    if (evidence.length >= MAX_EVIDENCE_ITEMS) {
+    if (evidence.length >= auditProfile.maxEvidenceItems) {
       break;
     }
   }
@@ -650,11 +666,11 @@ async function buildProjectContext(prompt, env) {
     tree.truncatedByGitHub || tree.truncatedByArgos;
 
   const fileLimitReached =
-    selected.length >= MAX_INSPECT_FILES &&
+    selected.length >= auditProfile.maxInspectFiles &&
     candidates.length > selected.length;
 
   const evidenceLimitReached =
-    evidence.length >= MAX_EVIDENCE_ITEMS;
+    evidence.length >= auditProfile.maxEvidenceItems;
 
   const coveredTerms = terms.filter(
     (term) => (perTermCounts.get(term) || 0) > 0,
@@ -797,6 +813,11 @@ async function buildProjectContext(prompt, env) {
     commitSha: tree.commitSha,
     method: "direct-tree-inspection",
     auditMode,
+    auditLimits: {
+      maxInspectFiles: auditProfile.maxInspectFiles,
+      maxInspectBytes: auditProfile.maxInspectBytes,
+      maxEvidenceItems: auditProfile.maxEvidenceItems,
+    },
     terms,
     candidateFiles: candidates.length,
     selectedFiles: selected.length,
@@ -829,6 +850,22 @@ export async function onRequestGet({ request, env }) {
   try {
     const url = new URL(request.url);
     const prompt = String(url.searchParams.get("q") || "").trim();
+    const requestedMode = String(
+      url.searchParams.get("mode") || "quick",
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!["quick", "deep"].includes(requestedMode)) {
+      return jsonResponse(
+        {
+          ok: false,
+          tool: "project-source",
+          reason: "mode deve ser quick ou deep.",
+        },
+        400,
+      );
+    }
 
     if (!prompt || prompt.length > 4000) {
       return jsonResponse(
@@ -841,7 +878,11 @@ export async function onRequestGet({ request, env }) {
       );
     }
 
-    const context = await buildProjectContext(prompt, env);
+    const context = await buildProjectContext(
+      prompt,
+      env,
+      requestedMode,
+    );
 
     return jsonResponse({
       ok: true,
