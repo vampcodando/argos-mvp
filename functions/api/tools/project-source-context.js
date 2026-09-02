@@ -656,6 +656,25 @@ async function buildProjectContext(prompt, env) {
   const evidenceLimitReached =
     evidence.length >= MAX_EVIDENCE_ITEMS;
 
+  const coveredTerms = terms.filter(
+    (term) => (perTermCounts.get(term) || 0) > 0,
+  );
+
+  const missingTerms = terms.filter(
+    (term) => (perTermCounts.get(term) || 0) <= 0,
+  );
+
+  const termCoverage = {
+    numerator: coveredTerms.length,
+    denominator: terms.length,
+    percent: coveragePercent(
+      coveredTerms.length,
+      terms.length,
+    ),
+    coveredTerms,
+    missingTerms,
+  };
+
   const coverage = {
     selection: {
       numerator: selected.length,
@@ -689,6 +708,87 @@ async function buildProjectContext(prompt, env) {
         selectedBytes,
       ),
     },
+    terms: termCoverage,
+  };
+
+  let confidenceScore = 100;
+  const confidenceReasons = [];
+
+  const penalize = (points, reason) => {
+    confidenceScore = Math.max(
+      0,
+      confidenceScore - points,
+    );
+    confidenceReasons.push(reason);
+  };
+
+  if (treeLimitReached) {
+    penalize(30, "tree_limit_reached");
+  }
+
+  if (fileLimitReached) {
+    penalize(15, "file_limit_reached");
+  }
+
+  if (byteLimitReached) {
+    penalize(10, "byte_limit_reached");
+  }
+
+  if (evidenceLimitReached) {
+    penalize(10, "evidence_limit_reached");
+  }
+
+  const inspectionPercent =
+    coverage.inspection.percent ?? 0;
+
+  if (inspectionPercent < 25) {
+    penalize(25, "inspection_coverage_below_25");
+  } else if (inspectionPercent < 50) {
+    penalize(15, "inspection_coverage_below_50");
+  } else if (inspectionPercent < 80) {
+    penalize(5, "inspection_coverage_below_80");
+  }
+
+  const readSuccessPercent =
+    coverage.readSuccess.percent ?? 0;
+
+  if (readSuccessPercent < 90) {
+    penalize(25, "read_success_below_90");
+  } else if (readSuccessPercent < 100) {
+    penalize(10, "read_success_below_100");
+  }
+
+  const termCoveragePercent =
+    coverage.terms.percent ?? 0;
+
+  if (termCoveragePercent < 50) {
+    penalize(30, "term_coverage_below_50");
+  } else if (termCoveragePercent < 80) {
+    penalize(15, "term_coverage_below_80");
+  }
+
+  const selectionPercent =
+    coverage.selection.percent;
+
+  if (
+    selectionPercent !== null &&
+    selectionPercent < 40
+  ) {
+    penalize(10, "selection_coverage_below_40");
+  }
+
+  const confidenceLevel =
+    confidenceScore >= 80
+      ? "HIGH"
+      : confidenceScore >= 50
+        ? "MEDIUM"
+        : "LOW";
+
+  const confidence = {
+    level: confidenceLevel,
+    score: confidenceScore,
+    deterministic: true,
+    reasons: confidenceReasons,
   };
 
   return {
@@ -719,6 +819,7 @@ async function buildProjectContext(prompt, env) {
       evidenceLimit: evidenceLimitReached,
     },
     coverage,
+    confidence,
     evidenceCount: evidence.length,
     evidence,
   };
