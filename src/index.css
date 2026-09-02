@@ -1709,6 +1709,69 @@
   }
 }
 
+.master-chat-audit-footer {
+  margin-top: 0.8rem;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid
+    color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 10px;
+  background:
+    color-mix(in srgb, var(--panel) 82%, transparent);
+  color:
+    color-mix(in srgb, var(--fg) 78%, transparent);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.master-chat-audit-footer-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.8rem;
+  margin-bottom: 0.5rem;
+}
+.master-chat-audit-footer-title {
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.master-chat-audit-footer-confidence {
+  color:
+    color-mix(in srgb, var(--fg) 74%, transparent);
+  font-size: 10px;
+}
+.master-chat-audit-footer-confidence strong {
+  color: var(--fg);
+  font-weight: 700;
+}
+.master-chat-audit-footer-grid {
+  display: grid;
+  grid-template-columns:
+    repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.3rem 0.8rem;
+}
+.master-chat-audit-footer-grid > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.master-chat-audit-footer-grid strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .master-chat-audit-footer {
+    padding: 0.68rem 0.7rem;
+  }
+  .master-chat-audit-footer-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .master-chat-audit-footer-grid {
+    grid-template-columns: 1fr;
+  }
+}
 /* ==========================================================
    ARGOS - Renderizacao Markdown das respostas
    ========================================================== */

@@ -1088,6 +1088,24 @@ function buildProjectAuditFooter(
     elapsedMs: auditCount(context.elapsedMs),
   };
 }
+function formatAuditPercent(
+  metric: ProjectAuditMetric
+) {
+  if (metric.percent === null) {
+    return "—";
+  }
+  return String(metric.percent).replace(".", ",") + "%";
+}
+function formatAuditElapsed(elapsedMs: number) {
+  if (elapsedMs < 1000) {
+    return elapsedMs + " ms";
+  }
+  return (
+    (elapsedMs / 1000)
+      .toFixed(1)
+      .replace(".", ",") + " s"
+  );
+}
 const ALLOWED_TOOL_NAMES = new Set<ToolExecutionMetadata["tool"]>([
   "weather",
   "github-repo",
@@ -3346,6 +3364,105 @@ export function MasterChatHome() {
             ) : (
               <p>{message.text}</p>
             )}
+            {message.auditFooter ? (
+              <div
+                className="master-chat-audit-footer"
+                aria-label="Resumo determinístico da auditoria"
+              >
+                <div className="master-chat-audit-footer-head">
+                  <div className="master-chat-audit-footer-title">
+                    ARGOS AUDIT ENGINE ·{" "}
+                    {message.auditFooter.mode.toUpperCase()}
+                  </div>
+                  <div className="master-chat-audit-footer-confidence">
+                    Confiança de cobertura:{" "}
+                    <strong>
+                      {message.auditFooter.confidence.level}
+                    </strong>{" "}
+                    ({message.auditFooter.confidence.score}/100)
+                  </div>
+                </div>
+                <div className="master-chat-audit-footer-grid">
+                  <div>
+                    <strong>Commit</strong>{" "}
+                    {message.auditFooter.commitSha.slice(0, 12)}
+                  </div>
+                  <div>
+                    <strong>Seleção elegível</strong>{" "}
+                    {formatAuditPercent(
+                      message.auditFooter.coverage.selection
+                    )}{" "}
+                    ({message.auditFooter.coverage.selection.numerator}/
+                    {message.auditFooter.coverage.selection.denominator})
+                  </div>
+                  <div>
+                    <strong>Inspeção</strong>{" "}
+                    {formatAuditPercent(
+                      message.auditFooter.coverage.inspection
+                    )}{" "}
+                    ({message.auditFooter.coverage.inspection.numerator}/
+                    {message.auditFooter.coverage.inspection.denominator})
+                  </div>
+                  <div>
+                    <strong>Leituras</strong>{" "}
+                    {formatAuditPercent(
+                      message.auditFooter.coverage.readSuccess
+                    )}{" "}
+                    ({message.auditFooter.coverage.readSuccess.numerator}/
+                    {message.auditFooter.coverage.readSuccess.denominator})
+                  </div>
+                  <div>
+                    <strong>Bytes inspecionados</strong>{" "}
+                    {formatAuditPercent(
+                      message.auditFooter.coverage.byteInspection
+                    )}
+                  </div>
+                  <div>
+                    <strong>Termos selecionados</strong>{" "}
+                    {formatAuditPercent(
+                      message.auditFooter.coverage.terms
+                    )}{" "}
+                    ({message.auditFooter.coverage.terms.numerator}/
+                    {message.auditFooter.coverage.terms.denominator})
+                  </div>
+                  <div>
+                    <strong>Arquivos</strong>{" "}
+                    {message.auditFooter.files.read} lidos ·{" "}
+                    {message.auditFooter.files.failed} falhas ·{" "}
+                    {message.auditFooter.files.unscanned} não inspecionados
+                  </div>
+                  <div>
+                    <strong>Tempo</strong>{" "}
+                    {formatAuditElapsed(
+                      message.auditFooter.elapsedMs
+                    )}
+                  </div>
+                  <div>
+                    <strong>Limites</strong>{" "}
+                    {[
+                      message.auditFooter.limits.file
+                        ? "arquivos"
+                        : null,
+                      message.auditFooter.limits.byte
+                        ? "bytes"
+                        : null,
+                      message.auditFooter.limits.tree
+                        ? "árvore"
+                        : null,
+                      message.auditFooter.limits.evidence
+                        ? "evidências"
+                        : null,
+                      message.auditFooter.limits
+                        .subrequestBudget
+                        ? "subrequests"
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "nenhum atingido"}
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {message.imageBase64 ? (
               <img
                 className="master-chat-image-result"
