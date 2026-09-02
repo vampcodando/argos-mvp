@@ -473,6 +473,17 @@ function findEvidence(text, term, item) {
   return matches;
 }
 
+function coveragePercent(numerator, denominator) {
+  const total = Number(denominator || 0);
+  const value = Number(numerator || 0);
+
+  if (total <= 0) {
+    return null;
+  }
+
+  return Number(((value / total) * 100).toFixed(1));
+}
+
 async function buildProjectContext(prompt, env) {
   const startedAt = Date.now();
   const auditMode = "quick";
@@ -645,6 +656,41 @@ async function buildProjectContext(prompt, env) {
   const evidenceLimitReached =
     evidence.length >= MAX_EVIDENCE_ITEMS;
 
+  const coverage = {
+    selection: {
+      numerator: selected.length,
+      denominator: candidates.length,
+      percent: coveragePercent(
+        selected.length,
+        candidates.length,
+      ),
+    },
+    inspection: {
+      numerator: scannedPaths.size,
+      denominator: selected.length,
+      percent: coveragePercent(
+        scannedPaths.size,
+        selected.length,
+      ),
+    },
+    readSuccess: {
+      numerator: readFiles,
+      denominator: scannedPaths.size,
+      percent: coveragePercent(
+        readFiles,
+        scannedPaths.size,
+      ),
+    },
+    byteInspection: {
+      numerator: analyzedBytes,
+      denominator: selectedBytes,
+      percent: coveragePercent(
+        analyzedBytes,
+        selectedBytes,
+      ),
+    },
+  };
+
   return {
     query: String(prompt || "").trim(),
     ref: ALLOWED_REF,
@@ -672,6 +718,7 @@ async function buildProjectContext(prompt, env) {
       treeLimit: treeLimitReached,
       evidenceLimit: evidenceLimitReached,
     },
+    coverage,
     evidenceCount: evidence.length,
     evidence,
   };
