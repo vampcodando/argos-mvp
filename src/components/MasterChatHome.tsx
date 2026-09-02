@@ -1167,13 +1167,29 @@ function compactToolResultForModel(toolContext: ArgosToolContext) {
         ref: context.ref,
         commitSha: context.commitSha,
         method: context.method,
+        auditMode: context.auditMode,
+        auditLimits: context.auditLimits,
         terms: Array.isArray(context.terms)
           ? context.terms.slice(0, 20)
           : [],
         candidateFiles: context.candidateFiles,
         selectedFiles: context.selectedFiles,
         scannedFiles: context.scannedFiles,
+        readFiles: context.readFiles,
+        blobReadAttempts: context.blobReadAttempts,
+        failedFiles: context.failedFiles,
+        failedPaths: Array.isArray(context.failedPaths)
+          ? context.failedPaths.slice(0, 12)
+          : [],
+        ignoredFiles: context.ignoredFiles,
+        excludedFiles: context.excludedFiles,
+        unscannedSelectedFiles: context.unscannedSelectedFiles,
+        analyzedBytes: context.analyzedBytes,
         selectedBytes: context.selectedBytes,
+        coverage: context.coverage,
+        confidence: context.confidence,
+        limitsReached: context.limitsReached,
+        elapsedMs: context.elapsedMs,
         truncatedByFileLimit:
           context.truncatedByFileLimit === true,
         truncatedByTree: context.truncatedByTree === true,
