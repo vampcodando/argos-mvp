@@ -2774,6 +2774,8 @@ export function MasterChatHome() {
                   text: finalResponse,
                   status: "normal",
                   label: `ARGOS — ${reasoningModelName}`,
+                  auditFooter:
+                    buildProjectAuditFooter(toolContext),
                 }
               : message
           )
