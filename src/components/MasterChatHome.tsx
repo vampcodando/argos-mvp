@@ -56,6 +56,43 @@ type MediaMessage = {
   error?: string;
 };
 
+type ProjectAuditMetric = {
+  numerator: number;
+  denominator: number;
+  percent: number | null;
+};
+type ProjectAuditFooter = {
+  mode: "quick" | "deep";
+  commitSha: string;
+  confidence: {
+    level: "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+    score: number;
+    reasons: string[];
+  };
+  coverage: {
+    selection: ProjectAuditMetric;
+    inspection: ProjectAuditMetric;
+    readSuccess: ProjectAuditMetric;
+    byteInspection: ProjectAuditMetric;
+    terms: ProjectAuditMetric;
+  };
+  files: {
+    candidates: number;
+    selected: number;
+    scanned: number;
+    read: number;
+    failed: number;
+    unscanned: number;
+  };
+  limits: {
+    file: boolean;
+    byte: boolean;
+    tree: boolean;
+    evidence: boolean;
+    subrequestBudget: boolean;
+  };
+  elapsedMs: number;
+};
 type ChatMessage = {
   id: string;
   role: "master" | "user";
@@ -65,6 +102,7 @@ type ChatMessage = {
   imageBase64?: string;
   imageMimeType?: string;
   media?: MediaMessage;
+  auditFooter?: ProjectAuditFooter;
 };
 
 type PendingAttachment = {
@@ -946,6 +984,110 @@ type ToolExecutionMetadata = {
   browserMsUsed?: number;
 };
 
+function auditCount(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? Math.max(0, Math.round(number))
+    : 0;
+}
+function auditPercent(value: unknown) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, number));
+}
+function buildAuditMetric(value: any): ProjectAuditMetric {
+  return {
+    numerator: auditCount(value?.numerator),
+    denominator: auditCount(value?.denominator),
+    percent: auditPercent(value?.percent),
+  };
+}
+function buildProjectAuditFooter(
+  toolContext: ArgosToolContext | null
+): ProjectAuditFooter | undefined {
+  if (toolContext?.tool !== "project-source") {
+    return undefined;
+  }
+  const result = toolContext.result as Record<string, any>;
+  const context = result?.context;
+  if (
+    result?.ok !== true ||
+    !context ||
+    typeof context !== "object" ||
+    (context.auditMode !== "quick" &&
+      context.auditMode !== "deep")
+  ) {
+    return undefined;
+  }
+  const commitSha = String(context.commitSha || "").trim();
+  if (!commitSha) {
+    return undefined;
+  }
+  const rawLevel = String(
+    context.confidence?.level || ""
+  ).toUpperCase();
+  const confidenceLevel =
+    rawLevel === "HIGH" ||
+    rawLevel === "MEDIUM" ||
+    rawLevel === "LOW"
+      ? rawLevel
+      : "UNKNOWN";
+  return {
+    mode: context.auditMode,
+    commitSha,
+    confidence: {
+      level: confidenceLevel,
+      score: auditCount(context.confidence?.score),
+      reasons: Array.isArray(context.confidence?.reasons)
+        ? context.confidence.reasons
+            .slice(0, 8)
+            .map((reason: unknown) =>
+              String(reason || "").slice(0, 120)
+            )
+            .filter(Boolean)
+        : [],
+    },
+    coverage: {
+      selection: buildAuditMetric(
+        context.coverage?.selection
+      ),
+      inspection: buildAuditMetric(
+        context.coverage?.inspection
+      ),
+      readSuccess: buildAuditMetric(
+        context.coverage?.readSuccess
+      ),
+      byteInspection: buildAuditMetric(
+        context.coverage?.byteInspection
+      ),
+      terms: buildAuditMetric(
+        context.coverage?.terms
+      ),
+    },
+    files: {
+      candidates: auditCount(context.candidateFiles),
+      selected: auditCount(context.selectedFiles),
+      scanned: auditCount(context.scannedFiles),
+      read: auditCount(context.readFiles),
+      failed: auditCount(context.failedFiles),
+      unscanned: auditCount(
+        context.unscannedSelectedFiles
+      ),
+    },
+    limits: {
+      file: context.limitsReached?.fileLimit === true,
+      byte: context.limitsReached?.byteLimit === true,
+      tree: context.limitsReached?.treeLimit === true,
+      evidence:
+        context.limitsReached?.evidenceLimit === true,
+      subrequestBudget:
+        context.limitsReached?.subrequestBudget === true,
+    },
+    elapsedMs: auditCount(context.elapsedMs),
+  };
+}
 const ALLOWED_TOOL_NAMES = new Set<ToolExecutionMetadata["tool"]>([
   "weather",
   "github-repo",
@@ -2863,6 +3005,8 @@ export function MasterChatHome() {
                     text: finalResponse,
                     status: "normal",
                     label: "ARGOS — " + responseModel,
+                    auditFooter:
+                      buildProjectAuditFooter(toolContext),
                   }
               : message
           )
@@ -3036,6 +3180,8 @@ export function MasterChatHome() {
                   text: finalResponse,
                   status: "normal",
                   label: "ARGOS — " + responseModel,
+                  auditFooter:
+                    buildProjectAuditFooter(toolContext),
                 }
             : message
         )
