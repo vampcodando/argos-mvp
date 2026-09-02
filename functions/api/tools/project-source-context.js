@@ -9,11 +9,13 @@ const AUDIT_PROFILES = Object.freeze({
     maxInspectFiles: 80,
     maxInspectBytes: 4_000_000,
     maxEvidenceItems: 18,
+    maxBlobReads: 40,
   }),
   deep: Object.freeze({
     maxInspectFiles: 160,
     maxInspectBytes: 8_000_000,
     maxEvidenceItems: 32,
+    maxBlobReads: 46,
   }),
 });
 
@@ -542,11 +544,20 @@ async function buildProjectContext(
   const successfulReadPaths = new Set();
   const failedPaths = new Set();
   let analyzedBytes = 0;
+  let blobReadAttempts = 0;
+  let subrequestBudgetReached = false;
 
   const getSelectedText = async (item) => {
     if (textCache.has(item.path)) {
       return textCache.get(item.path);
     }
+
+    if (blobReadAttempts >= auditProfile.maxBlobReads) {
+      subrequestBudgetReached = true;
+      return null;
+    }
+
+    blobReadAttempts += 1;
 
     let text = null;
     try {
@@ -602,6 +613,10 @@ async function buildProjectContext(
   }
 
   for (let offset = 0; offset < selected.length; offset += SEARCH_BATCH_SIZE) {
+    if (subrequestBudgetReached) {
+      break;
+    }
+
     const batch = selected.slice(offset, offset + SEARCH_BATCH_SIZE);
     const results = await Promise.all(
       batch.map(async (item) => ({
@@ -754,6 +769,10 @@ async function buildProjectContext(
     penalize(10, "evidence_limit_reached");
   }
 
+  if (subrequestBudgetReached) {
+    penalize(20, "subrequest_budget_reached");
+  }
+
   const inspectionPercent =
     coverage.inspection.percent ?? 0;
 
@@ -817,12 +836,14 @@ async function buildProjectContext(
       maxInspectFiles: auditProfile.maxInspectFiles,
       maxInspectBytes: auditProfile.maxInspectBytes,
       maxEvidenceItems: auditProfile.maxEvidenceItems,
+      maxBlobReads: auditProfile.maxBlobReads,
     },
     terms,
     candidateFiles: candidates.length,
     selectedFiles: selected.length,
     scannedFiles: scannedPaths.size,
     readFiles,
+    blobReadAttempts,
     ignoredFiles,
     excludedFiles,
     unscannedSelectedFiles,
@@ -838,6 +859,7 @@ async function buildProjectContext(
       byteLimit: byteLimitReached,
       treeLimit: treeLimitReached,
       evidenceLimit: evidenceLimitReached,
+      subrequestBudget: subrequestBudgetReached,
     },
     coverage,
     confidence,
