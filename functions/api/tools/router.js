@@ -126,6 +126,30 @@ function hasProjectSourceIntent(prompt) {
   return auditTerms.some((term) => text.includes(term));
 }
 
+function resolveProjectAuditMode(prompt) {
+  const text = normalize(prompt);
+
+  const deepTerms = [
+    "auditoria completa",
+    "auditoria integral",
+    "auditoria profunda",
+    "audite completamente",
+    "audite profundamente",
+    "analise profundamente",
+    "analise completa",
+    "analise integral",
+    "todos os arquivos",
+    "todo o repositorio",
+    "repositorio inteiro",
+    "deep audit",
+    "modo deep",
+  ];
+
+  return deepTerms.some((term) => text.includes(term))
+    ? "deep"
+    : "quick";
+}
+
 function hasWeatherIntent(prompt) {
   const text = normalize(prompt);
 
@@ -326,6 +350,7 @@ function buildGitHubEndpoint(repo) {
 function buildProjectSourceEndpoint(prompt) {
   const params = new URLSearchParams({
     q: String(prompt || "").trim(),
+    mode: resolveProjectAuditMode(prompt),
   });
 
   return `/api/tools/project-source-context?${params.toString()}`;
@@ -360,6 +385,7 @@ export async function onRequestPost({ request }) {
         detection: {
           tool: "project-source",
           endpoint: buildProjectSourceEndpoint(prompt),
+          auditMode: resolveProjectAuditMode(prompt),
           reason:
             "Pergunta exige inspecao read-only do codigo e da arquitetura do proprio ARGOS.",
         },
