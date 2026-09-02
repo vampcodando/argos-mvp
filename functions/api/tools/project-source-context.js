@@ -474,6 +474,8 @@ function findEvidence(text, term, item) {
 }
 
 async function buildProjectContext(prompt, env) {
+  const startedAt = Date.now();
+  const auditMode = "quick";
   const terms = inferInspectionTerms(prompt);
   const tree = await getTree(env);
   const candidates = tree.items
@@ -485,6 +487,7 @@ async function buildProjectContext(prompt, env) {
 
   const selected = [];
   let selectedBytes = 0;
+  let byteLimitReached = false;
 
   for (const item of candidates) {
     const size = Number(item.size || 0);
@@ -494,6 +497,7 @@ async function buildProjectContext(prompt, env) {
     }
 
     if (selectedBytes + size > MAX_INSPECT_BYTES) {
+      byteLimitReached = true;
       continue;
     }
 
@@ -508,7 +512,9 @@ async function buildProjectContext(prompt, env) {
   );
   const textCache = new Map();
   const scannedPaths = new Set();
-  let scannedFiles = 0;
+  const successfulReadPaths = new Set();
+  const failedPaths = new Set();
+  let analyzedBytes = 0;
 
   const getSelectedText = async (item) => {
     if (textCache.has(item.path)) {
@@ -524,6 +530,14 @@ async function buildProjectContext(prompt, env) {
 
     textCache.set(item.path, text);
     scannedPaths.add(item.path);
+
+    if (text === null) {
+      failedPaths.add(item.path);
+    } else {
+      successfulReadPaths.add(item.path);
+      analyzedBytes += Number(item.size || 0);
+    }
+
     return text;
   };
 
@@ -569,8 +583,6 @@ async function buildProjectContext(prompt, env) {
       })),
     );
 
-    scannedFiles = scannedPaths.size;
-
     for (const result of results) {
       if (!result.text) {
         continue;
@@ -607,18 +619,48 @@ async function buildProjectContext(prompt, env) {
     }
   }
 
+  const readFiles = successfulReadPaths.size;
+  const failedFiles = failedPaths.size;
+  const ignoredFiles = Math.max(
+    0,
+    candidates.length - scannedPaths.size,
+  );
+
+  const treeLimitReached =
+    tree.truncatedByGitHub || tree.truncatedByArgos;
+
+  const fileLimitReached =
+    selected.length >= MAX_INSPECT_FILES &&
+    candidates.length > selected.length;
+
+  const evidenceLimitReached =
+    evidence.length >= MAX_EVIDENCE_ITEMS;
+
   return {
     query: String(prompt || "").trim(),
     ref: ALLOWED_REF,
     commitSha: tree.commitSha,
     method: "direct-tree-inspection",
+    auditMode,
     terms,
     candidateFiles: candidates.length,
     selectedFiles: selected.length,
-    scannedFiles,
+    scannedFiles: scannedPaths.size,
+    readFiles,
+    ignoredFiles,
+    failedFiles,
+    failedPaths: [...failedPaths],
     selectedBytes,
+    analyzedBytes,
+    elapsedMs: Date.now() - startedAt,
     truncatedByFileLimit: candidates.length > selected.length,
-    truncatedByTree: tree.truncatedByGitHub || tree.truncatedByArgos,
+    truncatedByTree: treeLimitReached,
+    limitsReached: {
+      fileLimit: fileLimitReached,
+      byteLimit: byteLimitReached,
+      treeLimit: treeLimitReached,
+      evidenceLimit: evidenceLimitReached,
+    },
     evidenceCount: evidence.length,
     evidence,
   };
@@ -645,7 +687,7 @@ export async function onRequestGet({ request, env }) {
     return jsonResponse({
       ok: true,
       tool: "project-source",
-      version: "v0.1-project-context",
+      version: "v0.2-project-context",
       repository: ALLOWED_REPOSITORY,
       ref: ALLOWED_REF,
       access: "read-only",
