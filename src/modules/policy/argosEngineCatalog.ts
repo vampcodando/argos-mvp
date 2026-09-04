@@ -14,6 +14,7 @@ export type ArgosEngineStatus =
   | "disabled";
 
 export type ArgosEngineId =
+  | "ollama-bonsai-27b"
   | "ollama-qwen25-3b"
   | "ollama-qwen25-coder-7b"
   | "ollama-hermes3-8b"
@@ -39,6 +40,16 @@ export type ArgosEngine = {
 };
 
 export const ARGOS_ENGINE_CATALOG: ArgosEngine[] = [
+  {
+    id: "ollama-bonsai-27b",
+    name: "ARGOS Bonsai 27B",
+    mode: "local",
+    kind: "text",
+    status: "installed",
+    paidApi: false,
+    sensitiveDataAllowed: true,
+    notes: "Executor local principal do ARGOS para reasoning e coding, validado em GTX 1070 Ti 8 GB.",
+  },
   {
     id: "ollama-qwen25-3b",
     name: "qwen2.5:3b",

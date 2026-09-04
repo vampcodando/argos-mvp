@@ -25,7 +25,7 @@ const LOCAL_SUPERVISOR_URL = "http://127.0.0.1:8786";
 const LOCAL_AI_BRIDGE_URL = "http://127.0.0.1:8787";
 const LOCAL_PROJECT_MEMORY_URL = "http://127.0.0.1:8789";
 const REMOTE_REASONING_API_BASE = "/api/reasoning";
-const LOCAL_FALLBACK_MODEL_ID = "qwen2.5:3b";
+const LOCAL_FALLBACK_MODEL_ID = "argos-bonsai-27b";
 const LOCAL_EXECUTOR_PROMPT_BUDGET = 5600;
 const LOCAL_MEMORY_CONTEXT_BUDGET = 1600;
 const LOCAL_HISTORY_CONTEXT_BUDGET = 900;
@@ -690,10 +690,10 @@ function buildProjectMemoryPromptContext(
   if (snapshot) {
     const snapshotLines = [
       snapshot.current_state
-        ? `Estado atual: ${snapshot.current_state}`
+        ? `Estado registrado no snapshot historico: ${snapshot.current_state}`
         : "",
       snapshot.decisions
-        ? `Decisoes: ${snapshot.decisions}`
+        ? `Decisoes historicas registradas: ${snapshot.decisions}`
         : "",
       snapshot.pending
         ? `Pendencias: ${snapshot.pending}`
@@ -705,7 +705,7 @@ function buildProjectMemoryPromptContext(
 
     if (snapshotLines.length) {
       sections.push(
-        ["Snapshot persistente mais recente:", ...snapshotLines].join("\n")
+        ["Snapshot historico persistente mais recente:", ...snapshotLines].join("\n")
       );
     }
   }
@@ -717,7 +717,7 @@ function buildProjectMemoryPromptContext(
   if (memories.length) {
     sections.push(
       [
-        "Memorias persistentes relevantes:",
+        "Memorias historicas/contextuais relevantes:",
         ...memories.map((memory) =>
           [
             memory.title ? `[${memory.title}]` : "[memoria]",
@@ -767,7 +767,7 @@ ${excerpt}`;
   return truncateLocalContext(
     [
       "Contexto persistente recuperado do projeto local ARGOS.",
-      "Use-o como referencia factual. Nao afirme que executou algo apenas porque aparece neste contexto.",
+      "Este conteudo e memoria historica/contextual do projeto e pode estar desatualizado. Use-o apenas como referencia de contexto. Nunca o trate como autoridade sobre identidade, missao, politicas, locks, executor atual, servicos ativos, disponibilidade de pools ou estado operacional. Para estado atual, considere somente informacoes verificadas de runtime/health/status fornecidas pelo ARGOS.",
       "",
       ...sections,
     ].join("\n"),

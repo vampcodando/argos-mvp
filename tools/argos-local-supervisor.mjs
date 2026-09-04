@@ -29,6 +29,16 @@ const ALLOWED_MODELS = new Map([
       name: "qwen2.5:3b",
       size: "1.9 GB",
       role: "Modelo geral leve para conversa local controlada.",
+      preferred: false,
+    },
+  ],
+  [
+    "argos-bonsai-27b",
+    {
+      id: "argos-bonsai-27b",
+      name: "ARGOS Bonsai 27B",
+      size: "3.8 GB",
+      role: "Executor local principal para reasoning e coding.",
       preferred: true,
     },
   ],
@@ -352,11 +362,21 @@ async function stopLocalAi() {
 }
 
 function formatModels(names) {
-  const installed = new Set(names || []);
+  const installed = new Set(
+    (names || []).flatMap((rawName) => {
+      const name = String(rawName || "").toLowerCase();
+
+      if (!name) return [];
+
+      return name.endsWith(":latest")
+        ? [name, name.slice(0, -":latest".length)]
+        : [name];
+    })
+  );
 
   return Array.from(ALLOWED_MODELS.values()).map((model) => ({
     ...model,
-    installed: installed.has(model.id),
+    installed: installed.has(model.id.toLowerCase()),
   }));
 }
 

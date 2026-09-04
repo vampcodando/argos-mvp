@@ -4,6 +4,7 @@ const OLLAMA_BASE_URL = process.env.ARGOS_OLLAMA_URL || "http://127.0.0.1:11434"
 
 const MODEL_PLAN = [
   { id: "qwen2.5:3b", tier: "leve", priority: 1, role: "chat local geral", action: "manter" },
+  { id: "argos-bonsai-27b", tier: "alto_quantizado", priority: 50, role: "reasoning e coding local 27B", action: "manter como executor local principal" },
   { id: "qwen2.5-coder:7b", tier: "reprovado", priority: 99, role: "codigo e patches", action: "nao usar" },
   { id: "hermes3:8b", tier: "medio_alto", priority: 2, role: "planner JSON agente", action: "avaliar depois" },
   { id: "qwen2.5vl:3b", tier: "medio", priority: 3, role: "visao local leve", action: "confirmar suporte" },
@@ -41,7 +42,17 @@ async function status() {
 
   try {
     const models = await fetchInstalledModels();
-    const installed = new Set(models.map((m) => String(m.name || "").toLowerCase()));
+    const installed = new Set(
+      models.flatMap((m) => {
+        const name = String(m.name || "").toLowerCase();
+
+        if (!name) return [];
+
+        return name.endsWith(":latest")
+          ? [name, name.slice(0, -":latest".length)]
+          : [name];
+      })
+    );
 
     console.log("Ollama: online");
     console.log("Modelos detectados: " + models.length);
